@@ -1,12 +1,3 @@
-### Stage 1 - Node Build for Vite
-FROM node:22 as node-builder
-
-WORKDIR /app
-COPY . .
-
-RUN npm install && npm run build
-
-### Stage 2 - Laravel/PHP
 FROM richarvey/nginx-php-fpm:3.1.6
 
 WORKDIR /var/www/html
