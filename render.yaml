@@ -1,20 +1,33 @@
 services:
-  - type: web
-    name: Moni-kudi-app
-    env: docker
+  - name: monikudi
     plan: free
     dockerfilePath: ./Dockerfile
     buildCommand: ""
-    startCommand: ""
+    startCommand: php artisan serve --host=0.0.0.0 --port=8000
     envVars:
       - key: APP_ENV
         value: production
       - key: APP_KEY
-        value: base64:gbtZa0gx6HzGuYpbBkyrzWiZXT/ed1sBolGMfqgeVh8=
-      - key: APP_DEBUG
-        value: "false"
-      - key: APP_URL
-        value: https://monikudi.onrender.com
+        generateValue: true
       - key: DB_CONNECTION
-        value: mysql
-      # Add more DB credentials or service connections as needed
+        value: pgsql
+      - key: DB_HOST
+        fromDatabase:
+          name: monikudi-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: monikudi-db
+          property: port
+      - key: DB_DATABASE
+        fromDatabase:
+          name: monikudi-db
+          property: database
+      - key: DB_USERNAME
+        fromDatabase:
+          name: monikudi-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: monikudi-db
+          property: password
