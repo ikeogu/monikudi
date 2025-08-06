@@ -1,43 +1,39 @@
-# Start from official PHP image
-FROM php:8.2-fpm
+FROM richarvey/nginx-php-fpm:3.1.6
 
-# Set working directory
-WORKDIR /var/www
+# Set the working directory
+WORKDIR /var/www/html
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    libpng-dev \
-    libjpeg-dev \
-    libonig-dev \
-    libxml2-dev \
-    zip \
-    curl \
-    unzip \
-    git \
-    nodejs \
-    npm
+# Copy application files
+COPY . .
 
-# Install PHP extensions
-RUN docker-php-ext-install pdo pdo_mysql mbstring exif pcntl bcmath gd
+# Set ENV vars
+ENV SKIP_COMPOSER=0 \
+    WEBROOT=/var/www/html/public \
+    PHP_ERRORS_STDERR=1 \
+    RUN_SCRIPTS=1 \
+    REAL_IP_HEADER=1 \
+    COMPOSER_ALLOW_SUPERUSER=1 \
+    APP_ENV=production \
+    APP_DEBUG=false \
+    LOG_CHANNEL=stderr
 
-# Install Composer
-COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+# Install Laravel dependencies
+RUN composer install --no-dev --optimize-autoloader
 
-# Copy existing application
-COPY . /var/www
+# Install Node & build Vue frontend
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
+    apt-get install -y nodejs && \
+    npm install && \
+    npm run build
 
-# Install PHP dependencies
-RUN composer install --optimize-autoloader --no-dev
+# Ensure correct permissions for Laravel
+RUN chown -R www-data:www-data storage bootstrap/cache
 
-# Install Node dependencies and build frontend
-RUN npm install && npm run build
+# Generate Laravel key (optional: can also be done from env or deploy step)
+# RUN php artisan key:generate
 
-# Set proper permissions
-RUN chown -R www-data:www-data /var/www
+# Expose port 80 for web
+EXPOSE 80
 
-# Expose port
-EXPOSE 8000
-
-# Start Laravel
-CMD php artisan serve --host=0.0.0.0 --port=8000
+# Final CMD (already handled by image)
+CMD ["/start.sh"]
