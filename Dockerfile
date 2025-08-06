@@ -17,8 +17,6 @@ ENV LOG_CHANNEL stderr
 # Allow composer to run as root
 ENV COMPOSER_ALLOW_SUPERUSER 1
 
-RUN composer install --no-dev --optimize-autoloader \
- && chown -R www-data:www-data storage bootstrap/cache
 
 COPY scripts/00-laravel-deploy.sh /start.sh
 RUN chmod +x /start.sh

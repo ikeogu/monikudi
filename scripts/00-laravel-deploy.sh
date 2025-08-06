@@ -2,7 +2,9 @@
 set -e
 
 echo "🔧 Running composer..."
-composer install --no-dev --optimize-autoloader --working-dir=/var/www/html
+composer install --no-dev --optimize-autoloader --working-dir=/var/www/html/public
+
+chown -R www-data:www-data storage bootstrap/cache
 
 echo "🔐 Caching config..."
 php artisan config:cache
