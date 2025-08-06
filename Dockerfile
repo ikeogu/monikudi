@@ -1,8 +1,9 @@
-### Stage 1 - Node Build
-FROM node:18 as node-builder
+### Stage 1 - Node Build for Vite
+FROM node:22 as node-builder
 
 WORKDIR /app
 COPY . .
+
 RUN npm install && npm run build
 
 ### Stage 2 - Laravel/PHP
