@@ -36,6 +36,9 @@ ENV APP_ENV=production
 ENV APP_DEBUG=false
 ENV LOG_CHANNEL=stderr
 ENV COMPOSER_ALLOW_SUPERUSER=1
+ENV FORCE_HTTPS=true
+ENV APP_URL=https://monikudi.onrender.com
+ENV ASSET_URL=https://monikudi.onrender.com
 
 # Run Laravel script
 COPY scripts/00-laravel-deploy.sh /start.sh
