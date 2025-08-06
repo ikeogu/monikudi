@@ -18,6 +18,7 @@ return new class extends Migration
             $table->string('phone')->nullable();
             $table->string('email')->nullable();
             $table->string('reg_no')->nullable();
+            $table->unsignedBigInteger('wallet_balance')->default(0);
             $table->timestamps();
             $table->softDeletes();
         });

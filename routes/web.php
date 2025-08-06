@@ -17,9 +17,7 @@ Route::get('/', function () {
     ]);
 });
 
-Route::get('/dashboard', function () {
-    return Inertia::render('Dashboard');
-})->middleware(['auth', 'verified'])->name('dashboard');
+
 
 Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
@@ -28,12 +26,14 @@ Route::middleware('auth')->group(function () {
 });
 
 Route::middleware(['auth'])->group(function () {
-    //Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
-    Route::resource('customers', CustomerController::class);
-    Route::resource('customers.transactions', TransactionController::class);
+    Route::get('/dashboard', DashboardController::class)->name('dashboard');
+    Route::resource('customers', CustomerController::class)->except(['search', 'show']);
+    Route::resource('customers.transactions', TransactionController::class)->except(['quickTransaction', 'allTransactionz']);
+    Route::get('quickTransaction', [TransactionController::class, 'quickTransaction'])->name('quickTransaction');
+    Route::post('addTransaction', [TransactionController::class, 'storeTransaction'])->name('transactions.store');
     Route::get('/transactions', [TransactionController::class, 'allTransactionz'])->name('allTransactionz');
-    Route::get('/transactions/{transaction}/receipt', [TransactionController::class, 'printReceipt'])->name('transactions.receipt');
-
+    Route::get('/customers/{customer}/transactions/{transaction}/print', [TransactionController::class, 'print'])->name('transactions.print');
+    Route::get('/customers/search', [CustomerController::class, 'search'])->name('customers.search');
 });
 
 require __DIR__.'/auth.php';

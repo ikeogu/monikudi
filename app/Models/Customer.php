@@ -19,9 +19,20 @@ class Customer extends Model
         'wallet_balance'
     ];
 
+    protected $appends = ['full_name', 'wallet_balance_in_naira'];
 
     public function transactions(): HasMany
     {
         return $this->hasMany(Transaction::class);
+    }
+
+    public function getFullNameAttribute()
+    {
+        return "{$this->first_name} {$this->last_name}";
+    }
+
+    public function getWalletBalanceInNairaAttribute()
+    {
+        return number_format($this->wallet_balance / 100);
     }
 }
