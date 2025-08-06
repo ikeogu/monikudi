@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: Moni-kudi-app
+    env: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    buildCommand: ""
+    startCommand: ""
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_KEY
+        value: base64:gbtZa0gx6HzGuYpbBkyrzWiZXT/ed1sBolGMfqgeVh8=
+      - key: APP_DEBUG
+        value: "false"
+      - key: APP_URL
+        value: https://monikudi.onrender.com
+      - key: DB_CONNECTION
+        value: mysql
+      # Add more DB credentials or service connections as needed
