@@ -1,5 +1,6 @@
-# Build assets
-FROM node:20 as build-stage
+# Stage 1: Build Frontend Assets with Vite
+FROM node:20 as node-builder
+
 WORKDIR /app
 COPY package*.json vite.config.js ./
 COPY resources resources
@@ -7,17 +8,18 @@ COPY public public
 RUN npm install
 RUN npm run build
 
-# Laravel + Nginx/PHP
+# Stage 2: Laravel PHP Image
 FROM richarvey/nginx-php-fpm:3.1.6
+
 WORKDIR /var/www/html
 
-# Copy Laravel code
+# Copy Laravel app
 COPY . .
 
-# Copy Vite build
-COPY --from=build-stage /app/public/build public/build
+# Copy Vite built assets
+COPY --from=node-builder /app/public/build public/build
 
-# Your existing configs
+# Laravel env configs
 ENV SKIP_COMPOSER 1
 ENV WEBROOT /var/www/html/public
 ENV PHP_ERRORS_STDERR 1
@@ -28,6 +30,8 @@ ENV APP_DEBUG false
 ENV LOG_CHANNEL stderr
 ENV COMPOSER_ALLOW_SUPERUSER 1
 
+# Run Laravel script
 COPY scripts/00-laravel-deploy.sh /start.sh
 RUN chmod +x /start.sh
+
 CMD ["/start.sh"]
