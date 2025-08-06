@@ -17,11 +17,7 @@ ENV SKIP_COMPOSER=0 \
 RUN composer install --no-dev --optimize-autoloader \
  && chown -R www-data:www-data storage bootstrap/cache
 
- # Laravel setup
-RUN php artisan config:clear && \
-    php artisan migrate --seed && \
-    php artisan storage:link
-
-EXPOSE 80
+COPY scripts/00-laravel-deploy.sh /start.sh
+RUN chmod +x /start.sh
 
 CMD ["/start.sh"]
