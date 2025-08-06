@@ -20,8 +20,8 @@ RUN npm run build
 FROM richarvey/nginx-php-fpm:3.1.6
 WORKDIR /var/www/html
 
-# Copy Laravel app (excluding node_modules and build artifacts)
-COPY --exclude=node_modules --exclude=public/build . .
+# Copy Laravel app
+COPY . .
 
 # Copy Vite built assets from node-builder stage
 COPY --from=node-builder /app/public/build ./public/build
