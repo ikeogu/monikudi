@@ -2,7 +2,11 @@
 set -e
 
 echo "🔧 Running composer..."
-composer install --no-dev --optimize-autoloader --working-dir=/var/www/html/public
+
+cd /var/www/html
+
+echo "Running composer"
+composer install --no-dev --optimize-autoloader
 
 chown -R www-data:www-data storage bootstrap/cache
 
