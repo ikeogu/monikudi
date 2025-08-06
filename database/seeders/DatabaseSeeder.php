@@ -15,16 +15,18 @@ class DatabaseSeeder extends Seeder
     {
         // User::factory(10)->create();
 
-        User::create([
+        User::updateOrCreate([
+            'email' => 'superadmin@monikudi.com'
+        ], [
             'name' => 'Super Admin',
-            'email' => 'superadmin@monikudi.com',
             'password' => bcrypt('password'),
         ]);
 
 
-        User::create([
-            'name' => 'Admin',
+        User::updateOrCreate([
             'email' => 'admin@monikudi.com',
+        ], [
+            'name' => 'Admin',
             'password' => bcrypt('password'),
         ]);
     }
