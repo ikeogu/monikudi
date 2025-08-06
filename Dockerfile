@@ -3,7 +3,6 @@ FROM richarvey/nginx-php-fpm:3.1.6
 WORKDIR /var/www/html
 
 COPY . .
-COPY --from=node-builder /app/public/build ./public/build
 
 ENV SKIP_COMPOSER=0 \
     WEBROOT=/var/www/html/public \
