@@ -1,35 +1,21 @@
-# Stage 1: Build Frontend Assets with Vite
+# Stage 1: Build Frontend Assets
 FROM node:20 as node-builder
 WORKDIR /app
-
-# Copy package files first for better caching
-COPY package*.json ./
-COPY vite.config.js ./
-
-# Install dependencies
+COPY package*.json vite.config.js ./
 RUN npm install
-
-# Copy source files
 COPY resources ./resources
 COPY public ./public
-
-# Build assets
 RUN npm run build
 
-# Stage 2: Laravel PHP Image
+# Stage 2: Laravel App
 FROM richarvey/nginx-php-fpm:3.1.6
 WORKDIR /var/www/html
 
-# Copy Laravel app
+# Copy app files
 COPY . .
-
-# Install PHP dependencies with better error handling
-RUN composer install --optimize-autoloader --no-dev --prefer-dist --no-interaction --no-progress --no-suggest
-
-# Copy Vite built assets from node-builder stage
 COPY --from=node-builder /app/public/build ./public/build
 
-# Laravel env configs
+# Environment variables
 ENV SKIP_COMPOSER=1
 ENV WEBROOT=/var/www/html/public
 ENV PHP_ERRORS_STDERR=1
@@ -39,15 +25,11 @@ ENV APP_ENV=production
 ENV APP_DEBUG=false
 ENV LOG_CHANNEL=stderr
 ENV COMPOSER_ALLOW_SUPERUSER=1
-ENV FORCE_HTTPS=true
 ENV APP_URL=https://monikudi.onrender.com
 ENV ASSET_URL=https://monikudi.onrender.com
 
-# Run Laravel script
-COPY scripts/00-laravel-deploy.sh /start.sh
-RUN chmod +x /start.sh
 
-# Expose port
-EXPOSE 80
 
-CMD ["/start.sh"]
+# Set permissions
+RUN chown -R www-data:www-data /var/www/html && \
+    chmod -R 755 storage bootstrap/cache
