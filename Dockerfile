@@ -23,6 +23,8 @@ WORKDIR /var/www/html
 # Copy Laravel app
 COPY . .
 
+RUN composer install --optimize-autoloader --no-dev --prefer-dist --no-interaction --no-progress --no-suggest
+
 # Copy Vite built assets from node-builder stage
 COPY --from=node-builder /app/public/build ./public/build
 

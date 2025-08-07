@@ -8,6 +8,22 @@ cd /var/www/html
 echo "Running composer"
 composer install --no-dev --optimize-autoloader --no-dev
 
+if [ ! -f "vendor/autoload.php" ]; then
+    echo "Installing Composer dependencies..."
+    composer install --optimize-autoloader --no-dev --prefer-dist --no-interaction || {
+        echo "Composer install failed, trying with cache clear..."
+        composer clear-cache
+        composer install --optimize-autoloader --no-dev --prefer-dist --no-interaction
+    }
+fi
+
+# Generate application key if needed
+if [ ! -f ".env" ]; then
+    echo "No .env file found, creating from .env.example..."
+    cp .env.example .env
+fi
+
+
 chown -R www-data:www-data storage bootstrap/cache
 
 echo "🔐 Caching config..."
@@ -27,4 +43,6 @@ php artisan db:seed --force || true
 
 echo "🚀 Starting Laravel server..."
 
- 
+
+
+
