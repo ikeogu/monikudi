@@ -12,8 +12,10 @@ FROM richarvey/nginx-php-fpm:3.1.6
 WORKDIR /var/www/html
 
 # Copy app files
+# Copy app files
 COPY . .
 COPY --from=node-builder /app/public/build ./public/build
+
 
 # Environment variables
 ENV SKIP_COMPOSER=1
