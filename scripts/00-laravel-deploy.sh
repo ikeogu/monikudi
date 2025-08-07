@@ -17,13 +17,6 @@ if [ ! -f "vendor/autoload.php" ]; then
     }
 fi
 
-# Generate application key if needed
-if [ ! -f ".env" ]; then
-    echo "No .env file found, creating from .env.example..."
-    cp .env.example .env
-fi
-
-
 chown -R www-data:www-data storage bootstrap/cache
 
 echo "🔐 Caching config..."
