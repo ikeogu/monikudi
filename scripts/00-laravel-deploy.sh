@@ -6,7 +6,7 @@ echo "🔧 Running composer..."
 cd /var/www/html
 
 echo "Running composer"
-composer install --no-dev --optimize-autoloader --no-dev --prefer-dist
+composer install --no-dev --optimize-autoloader --no-dev
 
 chown -R www-data:www-data storage bootstrap/cache
 

@@ -22,11 +22,11 @@ export default defineConfig({
             '@': '/resources/js',
         },
     },
-    build: {
+     build: {
+        outDir: 'public/build',
+        manifest: true,
         rollupOptions: {
-            output: {
-                manualChunks: undefined,
-            },
+        input: 'resources/js/app.js',
         },
     },
 });
