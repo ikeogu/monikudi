@@ -27,3 +27,4 @@ php artisan db:seed --force || true
 
 echo "🚀 Starting Laravel server..."
 
+ 
