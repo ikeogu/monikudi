@@ -17,7 +17,8 @@ if [ ! -f "vendor/autoload.php" ]; then
     }
 fi
 
-chown -R www-data:www-data storage bootstrap/cache
+
+chmod -R ug+rw storage bootstrap/cache
 
 echo "🔐 Caching config..."
 php artisan config:cache
