@@ -23,6 +23,7 @@ WORKDIR /var/www/html
 # Copy Laravel app
 COPY . .
 
+# Install PHP dependencies with better error handling
 RUN composer install --optimize-autoloader --no-dev --prefer-dist --no-interaction --no-progress --no-suggest
 
 # Copy Vite built assets from node-builder stage
@@ -45,5 +46,8 @@ ENV ASSET_URL=https://monikudi.onrender.com
 # Run Laravel script
 COPY scripts/00-laravel-deploy.sh /start.sh
 RUN chmod +x /start.sh
+
+# Expose port
+EXPOSE 80
 
 CMD ["/start.sh"]
