@@ -28,8 +28,3 @@ ENV COMPOSER_ALLOW_SUPERUSER=1
 ENV APP_URL=https://monikudi.onrender.com
 ENV ASSET_URL=https://monikudi.onrender.com
 
-
-
-# Set permissions
-RUN chown -R www-data:www-data /var/www/html && \
-    chmod -R 755 storage bootstrap/cache
