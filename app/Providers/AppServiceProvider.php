@@ -24,13 +24,13 @@ class AppServiceProvider extends ServiceProvider
     {
         Vite::prefetch(concurrency: 3);
 
-        if (config('app.env') === 'production') {
+        /* if (config('app.env') === 'production') {
             URL::forceScheme('https');
-        }
+        } */
 
         // Alternative: Force HTTPS when behind a proxy (like Render)
-        if (request()->header('X-Forwarded-Proto') === 'https') {
+        /* if (request()->header('X-Forwarded-Proto') === 'https') {
             URL::forceScheme('https');
-        }
+        } */
     }
 }
