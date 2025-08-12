@@ -1,3 +1,8 @@
+
+import { defineConfig } from 'vite';
+import vue from '@vitejs/plugin-vue';
+import laravel from 'laravel-vite-plugin';
+
 export default defineConfig({
     plugins: [
         laravel({
@@ -16,7 +21,7 @@ export default defineConfig({
             },
         }),
     ],
-    
+
     resolve: {
         alias: {
             '@': '/resources/js',
@@ -27,3 +32,5 @@ export default defineConfig({
         manifest: true,
     },
 });
+
+
