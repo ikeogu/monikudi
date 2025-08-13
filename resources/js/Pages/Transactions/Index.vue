@@ -80,6 +80,23 @@
           </tr>
         </tbody>
       </table>
+       <div class="mt-4" v-if="transactions.links.length > 3">
+        <nav class="flex flex-wrap gap-2">
+            <Link
+            v-for="link in transactions.links"
+            :key="link.label"
+            :href="link.url"
+            class="px-3 py-1 border rounded"
+            :class="{
+                'bg-blue-500 text-white': link.active,
+                'text-gray-500': !link.url
+            }"
+            >
+            <span v-if="link.label" v-text="link.label"></span>
+            </Link>
+        </nav>
+    </div>
+
     </div>
     <p v-else class="text-gray-500">No transactions found.</p>
 
