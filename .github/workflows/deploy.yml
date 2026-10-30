@@ -88,4 +88,4 @@ jobs:
             -o BatchMode=yes \
             -o StrictHostKeyChecking=yes \
             "$SERVER_USER@$SERVER_HOST" \
-            'cd /var/www/monikudi && ./deploy.sh'
+            'cd /var/www/monikudi && bash deploy/deploy.sh'
