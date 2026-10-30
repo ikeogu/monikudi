@@ -1,5 +1,6 @@
 import '../css/app.css';
 import './bootstrap';
+import { registerServiceWorker } from './utils/pwa';
 
 
 import { createInertiaApp } from '@inertiajs/vue3';
@@ -13,7 +14,7 @@ const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
 
 
 createInertiaApp({
-    title: (title) => `${title} - ${appName}`,
+    title: (title) => (title ? `${title} - ${appName}` : appName),
     resolve: (name) =>
         resolvePageComponent(
             `./Pages/${name}.vue`,
@@ -26,8 +27,8 @@ createInertiaApp({
             .mount(el);
     },
     progress: {
-        color: '#15263eff',
+        color: '#3c63ef',
     },
 });
 
-
+registerServiceWorker();

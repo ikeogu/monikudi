@@ -10,23 +10,25 @@ class DatabaseSeeder extends Seeder
 {
     /**
      * Seed the application's database.
+     *
+     * This runs on every deploy, so it only creates the default admins when they are
+     * missing and never touches the password of an existing account.
      */
     public function run(): void
     {
-        // User::factory(10)->create();
-
-        User::updateOrCreate([
-            'email' => 'superadmin@monikudi.com'
+        User::firstOrCreate([
+            'email' => 'superadmin@monikudi.com',
         ], [
             'name' => 'Super Admin',
+            'role' => User::ROLE_ADMIN,
             'password' => bcrypt('password'),
         ]);
 
-
-        User::updateOrCreate([
+        User::firstOrCreate([
             'email' => 'admin@monikudi.com',
         ], [
             'name' => 'Admin',
+            'role' => User::ROLE_ADMIN,
             'password' => bcrypt('password'),
         ]);
     }

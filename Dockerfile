@@ -1,7 +1,7 @@
 # Stage 1: Build Frontend Assets
 FROM node:20 as node-builder
 WORKDIR /app
-COPY package*.json vite.config.js ./
+COPY package*.json vite.config.js tailwind.config.js postcss.config.js jsconfig.json ./
 RUN npm install
 COPY resources ./resources
 COPY public ./public
