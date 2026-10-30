@@ -1,156 +1,88 @@
-<template>
-  <div class="p-4 sm:p-6 max-w-xl mx-auto">
-    <!-- ✅ Flash Success Message -->
-    <div v-if="$page.props.flash?.success" class="bg-green-100 text-green-800 px-4 py-2 rounded mb-4 text-center">
-      {{ $page.props.flash.success }}
-    </div>
-
-    <!-- ❌ Flash Error Message -->
-    <div v-if="$page.props.flash?.error" class="bg-red-100 text-red-800 px-4 py-2 rounded mb-4 text-center">
-      {{ $page.props.flash.error }}
-    </div>
-    <div class="p-6">
-
-    <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-        <button @click="goBack()" class="text-sm bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded">
-        ← Back
-        </button>
-
-        <h2 class="text-xl sm:text-2xl font-bold text-gray-800 text-center lg:text-left">
-        ➕ Add Transaction for {{ customer.full_name }}
-        </h2>
-
-        <strong class="text-lg sm:text-xl lg:text-2xl text-green-700 text-center lg:text-right">
-        Current Bal. NGN {{ customer.wallet_balance_in_naira }}
-        </strong>
-
-    </div>
-    </div>
-
-
-    <form @submit.prevent="submit" class="space-y-4 bg-white shadow-md rounded-lg p-4 sm:p-6">
-      <!-- Transaction Type -->
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Type</label>
-        <select
-          v-model="form.type"
-          class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          required
-        >
-          <option value="credit">Credit</option>
-          <option value="debit">Debit</option>
-        </select>
-        <div v-if="form.errors.type" class="text-red-500 text-sm mt-1">
-          {{ form.errors.type }}
-        </div>
-      </div>
-
-      <!-- Amount -->
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Amount</label>
-        <input
-          type="number"
-          v-model="form.amount"
-          class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          step="0.01"
-          min="0"
-          required
-        />
-        <div v-if="form.errors.amount" class="text-red-500 text-sm mt-1">
-          {{ form.errors.amount }}
-        </div>
-      </div>
-
-      <!-- Description -->
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
-        <input
-          type="text"
-          v-model="form.description"
-          class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          required
-        />
-        <div v-if="form.errors.description" class="text-red-500 text-sm mt-1">
-          {{ form.errors.description }}
-        </div>
-      </div>
-
-      <!-- Date -->
-      <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">Date</label>
-        <input
-          type="date"
-          v-model="form.date"
-          class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          required
-        />
-        <div v-if="form.errors.date" class="text-red-500 text-sm mt-1">
-          {{ form.errors.date }}
-        </div>
-      </div>
-
-      <!-- Submit Button -->
-      <div class="pt-2">
-        <button
-          type="submit"
-          :disabled="form.processing"
-          class="w-full bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700 transition duration-300 disabled:bg-gray-400 disabled:cursor-not-allowed"
-        >
-          <span v-if="form.processing">Submitting...</span>
-          <span v-else>Submit Transaction</span>
-        </button>
-      </div>
-    </form>
-  </div>
-</template>
-
 <script setup>
-import { useForm } from '@inertiajs/vue3'
-import { defineProps } from 'vue'
-import { router } from '@inertiajs/vue3'
+import { computed, ref, watch } from 'vue';
+import { useForm, usePage } from '@inertiajs/vue3';
+import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
+import CustomerPicker from '@/Components/CustomerPicker.vue';
+import EntryFields from './Partials/EntryFields.vue';
+import { isOnline } from '@/utils/pwa';
 
 const props = defineProps({
-  customer: {
-    type: Object,
-    required: true
-  }
-})
+    type: String,
+    customer: Object,
+    collectors: Array,
+    paymentMethods: Object,
+    today: String,
+});
 
-// Initialize form with current date
-const today = new Date().toISOString().split('T')[0]
+const page = usePage();
+const selectedCustomer = ref(props.customer);
 
 const form = useForm({
-  type: 'credit',
-  amount: '',
-  description: '',
-  date: today
-})
+    customer_id: props.customer?.id ?? '',
+    type: props.type,
+    amount: '',
+    date: props.today,
+    payment_method: 'cash',
+    collected_by: page.props.auth.user.id,
+    description: '',
+});
+
+watch(selectedCustomer, (customer) => (form.customer_id = customer?.id ?? ''));
+
+const isDeposit = computed(() => form.type === 'credit');
+const title = computed(() => (isDeposit.value ? 'New Deposit' : 'New Withdrawal'));
 
 function submit() {
-  // Basic validation before submission
-  if (!form.amount || !form.description || !form.date) {
-    alert('Please fill in all required fields')
-    return
-  }
-
-  // Convert amount to number
-  form.amount = parseFloat(form.amount)
-
-  form.post(route('customers.transactions.store', props.customer.id), {
-    preserveScroll: true,
-    preserveState: true,
-    onSuccess: () => {
-      form.reset()
-      // Reset date to today after reset
-      form.date = today
-    },
-    onError: (errors) => {
-      console.error('Form submission errors:', errors)
-    }
-  })
-}
-
-function goBack() {
-  window.history.back()
+    form.transform((data) => ({ ...data, description: data.description || (isDeposit.value ? 'Daily Contribution' : 'Withdrawal') }))
+        .post(route('transactions.store'));
 }
 </script>
+
+<template>
+    <AuthenticatedLayout :title="title" :back="customer ? route('customers.show', customer.id) : route('dashboard')">
+        <form class="card max-w-2xl space-y-5 p-5 lg:p-8" @submit.prevent="submit">
+            <div class="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1" role="radiogroup" aria-label="Entry type">
+                <button
+                    type="button"
+                    role="radio"
+                    :aria-checked="isDeposit"
+                    :class="['rounded-lg py-2 text-sm font-semibold transition', isDeposit ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500']"
+                    @click="form.type = 'credit'"
+                >
+                    Deposit
+                </button>
+                <button
+                    type="button"
+                    role="radio"
+                    :aria-checked="!isDeposit"
+                    :class="['rounded-lg py-2 text-sm font-semibold transition', !isDeposit ? 'bg-white text-red-700 shadow-sm' : 'text-slate-500']"
+                    @click="form.type = 'debit'"
+                >
+                    Withdrawal
+                </button>
+            </div>
+
+            <div>
+                <label class="label">Select customer</label>
+                <CustomerPicker v-model="selectedCustomer" />
+                <p v-if="form.errors.customer_id" class="field-error">Please choose a customer.</p>
+            </div>
+
+            <EntryFields
+                :form="form"
+                :collectors="collectors"
+                :payment-methods="paymentMethods"
+                :today="today"
+                :balance="selectedCustomer ? selectedCustomer.balance : null"
+            />
+
+            <button
+                type="submit"
+                :class="['w-full py-3 text-base', isDeposit ? 'btn-primary' : 'btn-danger']"
+                :disabled="form.processing || !form.customer_id || !form.amount || !isOnline"
+            >
+                {{ form.processing ? 'Saving…' : isDeposit ? 'Save Deposit' : 'Save Withdrawal' }}
+            </button>
+        </form>
+    </AuthenticatedLayout>
+</template>

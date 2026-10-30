@@ -3,7 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\Customer;
+use App\Models\Transaction;
+use App\Services\Ledger;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 
 class CustomerController extends Controller
@@ -13,18 +16,11 @@ class CustomerController extends Controller
      */
     public function index(Request $request)
     {
-        $search = $request->input('search');
-
         $customers = Customer::query()
-            ->when($search, function ($query, $search) {
-                $query->where('first_name', 'like', "%{$search}%")
-                    ->orWhere('last_name', 'like', "%{$search}%")
-                    ->orWhere('reg_no', 'like', "%{$search}%");
-            })
+            ->search($request->input('search'))
             ->latest()
-            ->paginate(10)
+            ->paginate(15)
             ->withQueryString();
-
 
         return Inertia::render('Customers/Index', [
             'customers' => $customers,
@@ -33,28 +29,77 @@ class CustomerController extends Controller
     }
 
     /**
-     * Show the form for creating a new customer.
+     * Show the form for registering a new customer.
      */
     public function create()
     {
-        return Inertia::render('Customers/Create');
+        return Inertia::render('Customers/Create', [
+            'suggestedRegNo' => Customer::nextRegNo(),
+        ]);
     }
 
     /**
-     * Store a newly created customer in storage.
+     * Store a newly registered customer.
      */
     public function store(Request $request)
     {
-        $validated = $request->validate([
-            'first_name' => 'required|string|max:255',
-            'last_name' => 'required|string|max:255',
-            'phone' => 'nullable|string|max:20|unique:customers,phone',
-            'reg_no' => 'required|string|unique:customers,reg_no',
+        $validated = $request->validate($this->rules());
+        $validated['reg_no'] = strtoupper($validated['reg_no'] ?? '') ?: Customer::nextRegNo();
+        $validated['created_by'] = $request->user()->id;
+
+        $customer = Customer::create($validated);
+
+        return redirect()->route('customers.show', $customer)
+            ->with('success', "{$customer->full_name} registered as {$customer->reg_no}.");
+    }
+
+    /**
+     * Customer statement: totals plus every entry with its running balance.
+     */
+    public function show(Request $request, Customer $customer)
+    {
+        $filters = $request->validate([
+            'from' => 'nullable|date',
+            'to' => 'nullable|date|after_or_equal:from',
         ]);
 
-        Customer::create($validated);
+        $history = $customer->transactions()
+            ->with('collector:id,name')
+            ->orderBy('date')
+            ->orderBy('created_at')
+            ->get();
 
-        return redirect()->route('customers.index')->with('success', 'Customer created successfully.');
+        $running = 0;
+        $opening = 0;
+        $entries = [];
+        foreach ($history as $transaction) {
+            $running += $transaction->isDeposit() ? $transaction->amount : -$transaction->amount;
+            $date = substr($transaction->date, 0, 10);
+
+            if (! empty($filters['from']) && $date < $filters['from']) {
+                $opening = $running;
+
+                continue;
+            }
+            if (! empty($filters['to']) && $date > $filters['to']) {
+                continue;
+            }
+
+            $entries[] = [...$transaction->toArray(), 'running_balance' => round($running, 2)];
+        }
+
+        return Inertia::render('Customers/Show', [
+            'customer' => $customer->load('registeredBy:id,name'),
+            'summary' => [
+                'deposits' => (float) $history->where('type', Transaction::TYPE_DEPOSIT)->sum('amount'),
+                'withdrawals' => (float) $history->where('type', Transaction::TYPE_WITHDRAWAL)->sum('amount'),
+                'balance' => $customer->balance,
+                'opening' => round($opening, 2),
+                'historyBalance' => round($running, 2),
+            ],
+            'transactions' => array_reverse($entries),
+            'filters' => $filters,
+        ]);
     }
 
     /**
@@ -63,7 +108,7 @@ class CustomerController extends Controller
     public function edit(Customer $customer)
     {
         return Inertia::render('Customers/Edit', [
-            'customer' => $customer
+            'customer' => $customer,
         ]);
     }
 
@@ -72,16 +117,12 @@ class CustomerController extends Controller
      */
     public function update(Request $request, Customer $customer)
     {
-        $validated = $request->validate([
-            'first_name' => 'nullable|string|max:255',
-            'last_name' => 'nullable|string|max:255',
-            'phone' => 'nullable|string|max:20',
-            'reg_no' => 'nullable|string',
-        ]);
+        $validated = $request->validate($this->rules($customer));
+        $validated['reg_no'] = strtoupper($validated['reg_no'] ?? '') ?: $customer->reg_no ?: Customer::nextRegNo();
 
         $customer->update($validated);
 
-        return redirect()->route('customers.index')->with('success', 'Customer updated successfully.');
+        return redirect()->route('customers.show', $customer)->with('success', 'Customer updated successfully.');
     }
 
     /**
@@ -89,21 +130,45 @@ class CustomerController extends Controller
      */
     public function destroy(Customer $customer)
     {
+        if ($customer->wallet_balance > 0) {
+            return back()->with('error', "{$customer->full_name} still has ₦".number_format($customer->balance, 2).' saved. Pay it out before deleting.');
+        }
+
         $customer->delete();
 
         return redirect()->route('customers.index')->with('success', 'Customer deleted successfully.');
     }
 
+    /**
+     * Rebuild the stored balance from the customer's entries (fixes balances from older app versions).
+     */
+    public function recalculate(Customer $customer, Ledger $ledger)
+    {
+        [$previous, $current] = $ledger->rebuild($customer);
+
+        return back()->with('success', 'Balance recalculated: ₦'.number_format($previous / 100, 2).' → ₦'.number_format(max($current, 0) / 100, 2).'.');
+    }
+
     public function search(Request $request)
     {
-        $query = $request->input('query');
-
-        $customers = Customer::where('first_name', 'like', "%{$query}%")
-            ->orWhere('phone', 'like', "%{$query}%")
-            ->orWhere('last_name', 'like', "%{$query}%")
-            ->orWhere('reg_no', 'like', "%{$query}%")
-            ->get();
+        $customers = Customer::query()
+            ->search($request->input('query'))
+            ->orderBy('first_name')
+            ->take(10)
+            ->get(['id', 'reg_no', 'first_name', 'last_name', 'phone', 'wallet_balance']);
 
         return response()->json($customers);
+    }
+
+    private function rules(?Customer $customer = null): array
+    {
+        return [
+            'first_name' => 'required|string|max:255',
+            'last_name' => 'required|string|max:255',
+            'phone' => ['nullable', 'string', 'max:20', Rule::unique('customers', 'phone')->ignore($customer)->withoutTrashed()],
+            'email' => 'nullable|email|max:255',
+            'address' => 'nullable|string|max:255',
+            'reg_no' => ['nullable', 'string', 'max:30', Rule::unique('customers', 'reg_no')->ignore($customer)],
+        ];
     }
 }

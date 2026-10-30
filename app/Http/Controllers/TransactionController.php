@@ -4,158 +4,141 @@ namespace App\Http\Controllers;
 
 use App\Models\Customer;
 use App\Models\Transaction;
+use App\Models\User;
+use App\Services\Ledger;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 
 class TransactionController extends Controller
 {
     /**
-     * Display all transactions for a specific customer.
+     * Deposits and withdrawals, newest first. Collectors only see their own collections.
      */
-    public function allTransactionz(Request $request)
+    public function index(Request $request)
     {
-        $search = $request->input('search');
-
-        $transactions = Transaction::query()
-        ->when($search, function ($query, $search) {
-            $query->where('date', 'like', "%{$search}%")
-                ->orWhere('type', 'like', "%{$search}%")
-                ->orWhere('amount', 'like', "%{$search}%");
-        })
-            ->latest()
-            ->paginate(10)
-            ->withQueryString();
-
-        return Inertia::render('Transactions/AllTransactions', [
-            'transactions' => $transactions,
-            'filters' => $request->only('search'),
+        $filters = $request->validate([
+            'search' => 'nullable|string|max:100',
+            'type' => ['nullable', Rule::in([Transaction::TYPE_DEPOSIT, Transaction::TYPE_WITHDRAWAL])],
+            'from' => 'nullable|date',
+            'to' => 'nullable|date',
+            'collector' => 'nullable|integer',
         ]);
-    }
-    /**
-     * Display all transactions for a specific customer.
-     */
-    public function index(Request $request, Customer $customer)
-    {
-        $search = $request->input('search');
 
-        $transactions = Transaction::query()
-            ->where('customer_id', $customer->id)
-            ->when($search, function ($query, $search) {
-                $query->where('date', 'like', "%{$search}%")
-                    ->orWhere('transaction_type', 'like', "%{$search}%")
-                    ->orWhere('amount', 'like', "%{$search}%");
-            })
-            ->latest()
-            ->paginate(10)
-            ->withQueryString();
+        $query = Transaction::query()
+            ->visibleTo($request->user())
+            ->when($filters['search'] ?? null, fn ($query, $search) => $query->whereHas('customer', fn ($query) => $query->search($search)))
+            ->when($filters['type'] ?? null, fn ($query, $type) => $query->where('type', $type))
+            ->when($filters['from'] ?? null, fn ($query, $from) => $query->where('date', '>=', $from))
+            ->when($filters['to'] ?? null, fn ($query, $to) => $query->where('date', '<=', $to))
+            ->when($filters['collector'] ?? null, fn ($query, $collector) => $query->where('collected_by', $collector));
 
         return Inertia::render('Transactions/Index', [
-            'customer' => $customer,
-            'transactions' => $transactions,
-            'filters' => $request->only('search'),
+            'transactions' => (clone $query)
+                ->with(['customer:id,reg_no,first_name,last_name,phone', 'collector:id,name'])
+                ->orderByDesc('date')
+                ->orderByDesc('created_at')
+                ->paginate(20)
+                ->withQueryString(),
+            'totals' => [
+                'deposits' => (float) (clone $query)->deposits()->sum('amount'),
+                'withdrawals' => (float) (clone $query)->withdrawals()->sum('amount'),
+            ],
+            'filters' => $filters,
+            'collectors' => $request->user()->isAdmin() ? User::orderBy('name')->get(['id', 'name']) : [],
+            'paymentMethods' => Transaction::PAYMENT_METHODS,
         ]);
     }
 
     /**
-     * Show the form for creating a new transaction.
+     * New deposit or withdrawal form.
      */
-    public function create(Customer $customer)
+    public function create(Request $request)
     {
         return Inertia::render('Transactions/Create', [
-            'customer' => $customer
+            'type' => $request->input('type') === Transaction::TYPE_WITHDRAWAL ? Transaction::TYPE_WITHDRAWAL : Transaction::TYPE_DEPOSIT,
+            'customer' => $request->filled('customer')
+                ? Customer::find($request->input('customer'), ['id', 'reg_no', 'first_name', 'last_name', 'phone', 'wallet_balance'])
+                : null,
+            'collectors' => $this->collectorOptions($request->user()),
+            'paymentMethods' => Transaction::PAYMENT_METHODS,
+            'today' => today()->toDateString(),
         ]);
     }
 
     /**
-     * Store a newly created transaction.
+     * Post a deposit or withdrawal and update the customer's balance.
      */
-    public function store(Request $request, Customer $customer)
+    public function store(Request $request, Ledger $ledger)
     {
         $validated = $request->validate([
-            'type' => 'required|in:credit,debit',
-            'amount' => 'required|numeric|min:0.01',
-            'description' => 'nullable|string|max:255',
-            'date' => 'required|date',
+            'customer_id' => ['required', Rule::exists('customers', 'id')->withoutTrashed()],
+            ...$this->rules($request->user()),
         ]);
 
-        $customer->transactions()->create($validated);
+        $customer = Customer::findOrFail($validated['customer_id']);
+        $transaction = $ledger->record($customer, collect($validated)->except('customer_id')->all(), $request->user());
 
-        return Inertia::render('Transactions/Create', [
-            'customer' => $customer,
-            'flash' => ['success' => 'Transaction created successfully.'],
-        ]);
+        $label = $transaction->isDeposit() ? 'Deposit' : 'Withdrawal';
+
+        return redirect()->route('transactions.show', $transaction)
+            ->with('success', "{$label} of ₦".number_format($transaction->amount, 2)." saved for {$customer->full_name}.");
     }
 
     /**
-     * Store a newly created transaction.
+     * Receipt for a single entry.
      */
-    public function storeTransaction(Request $request)
+    public function show(Transaction $transaction)
     {
-        $validated = $request->validate([
-            'type' => 'required|in:credit,debit',
-            'amount' => 'required|numeric|min:0.01',
-            'description' => 'nullable|string|max:255',
-            'date' => 'required|date',
-            'customer_id' => 'required'
-        ]);
-
-        Transaction::create($validated);
-
-        return Inertia::render('Transactions/CreateTransaction', [
-            'flash' => ['success' => 'Transaction created successfully.'],
+        return Inertia::render('Transactions/Show', [
+            'transaction' => $transaction->load(['customer', 'collector:id,name', 'creator:id,name']),
+            'paymentMethods' => Transaction::PAYMENT_METHODS,
         ]);
     }
 
-    /**
-     * Show the form for editing a transaction.
-     */
-    public function edit(Customer $customer, Transaction $transaction)
+    public function edit(Request $request, Transaction $transaction)
     {
         return Inertia::render('Transactions/Edit', [
-            'customer' => $customer,
-            'transaction' => $transaction
+            'transaction' => $transaction->load('customer'),
+            'collectors' => $this->collectorOptions($request->user()),
+            'paymentMethods' => Transaction::PAYMENT_METHODS,
+            'today' => today()->toDateString(),
         ]);
     }
 
-    /**
-     * Update the specified transaction.
-     */
-    public function update(Request $request, Customer $customer, Transaction $transaction)
+    public function update(Request $request, Transaction $transaction, Ledger $ledger)
     {
-        $validated = $request->validate([
-            'type' => 'required|in:credit,debit',
-            'amount' => 'required|numeric|min:0.01',
+        $ledger->update($transaction, $request->validate($this->rules($request->user())));
+
+        return redirect()->route('transactions.show', $transaction)->with('success', 'Transaction updated.');
+    }
+
+    public function destroy(Transaction $transaction, Ledger $ledger)
+    {
+        $ledger->delete($transaction);
+
+        return redirect()->route('customers.show', $transaction->customer_id)->with('success', 'Transaction deleted and balance adjusted.');
+    }
+
+    private function rules(User $user): array
+    {
+        return [
+            'type' => ['required', Rule::in([Transaction::TYPE_DEPOSIT, Transaction::TYPE_WITHDRAWAL])],
+            'amount' => 'required|numeric|min:1|max:100000000',
+            'date' => 'required|date|before_or_equal:today',
+            'payment_method' => ['required', Rule::in(array_keys(Transaction::PAYMENT_METHODS))],
+            // Collectors can only record money they collected themselves.
+            'collected_by' => $user->isAdmin()
+                ? ['required', Rule::exists('users', 'id')]
+                : ['required', Rule::in([$user->id])],
             'description' => 'nullable|string|max:255',
-            'date' => 'required|date',
-        ]);
-
-        $transaction->update($validated);
-
-        return redirect()->route('transactions.index', $customer->id)->with('success', 'Transaction updated.');
+        ];
     }
 
-    /**
-     * Delete a transaction.
-     */
-    public function destroy(Customer $customer, Transaction $transaction)
+    private function collectorOptions(User $user)
     {
-        $transaction->delete();
-
-        return redirect()->route('customers.transactions.index', $customer->id)->with('success', 'Transaction deleted.');
-    }
-
-
-    public function  quickTransaction()  {
-
-        return Inertia::render('Transactions/CreateTransaction');
-
-    }
-
-    public function print(Customer $customer, Transaction $transaction)
-    {
-        return Inertia::render('Transactions/PrintReceipt', [
-            'customer' => $customer,
-            'transaction' => $transaction,
-        ]);
+        return $user->isAdmin()
+            ? User::active()->orderBy('name')->get(['id', 'name', 'role'])
+            : collect([$user->only('id', 'name', 'role')]);
     }
 }

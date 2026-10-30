@@ -1,39 +1,48 @@
 <?php
 
+use App\Http\Controllers\BackupController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\ReportController;
+use App\Http\Controllers\SettingController;
+use App\Http\Controllers\StaffController;
 use App\Http\Controllers\TransactionController;
-use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
-use Inertia\Inertia;
 
-Route::get('/', function () {
-    return Inertia::render('Welcome', [
-        'canLogin' => Route::has('login'),
-        'canRegister' => Route::has('register'),
-        'laravelVersion' => Application::VERSION,
-        'phpVersion' => PHP_VERSION,
-    ]);
-});
-
-
+Route::redirect('/', '/dashboard');
 
 Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
-    Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 });
 
 Route::middleware(['auth'])->group(function () {
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
-    Route::resource('customers', CustomerController::class)->except(['search', 'show']);
-    Route::resource('customers.transactions', TransactionController::class)->except(['quickTransaction', 'allTransactionz']);
-    Route::get('quickTransaction', [TransactionController::class, 'quickTransaction'])->name('quickTransaction');
-    Route::post('addTransaction', [TransactionController::class, 'storeTransaction'])->name('transactions.store');
-    Route::get('/transactions', [TransactionController::class, 'allTransactionz'])->name('allTransactionz');
-    Route::get('/customers/{customer}/transactions/{transaction}/print', [TransactionController::class, 'print'])->name('transactions.print');
+
     Route::get('/customers/search', [CustomerController::class, 'search'])->name('customers.search');
+    Route::resource('customers', CustomerController::class)->except('destroy');
+
+    Route::resource('transactions', TransactionController::class)->only(['index', 'create', 'store', 'show']);
+
+    Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
+    Route::get('/reports/export', [ReportController::class, 'export'])->name('reports.export');
+
+    Route::middleware('admin')->group(function () {
+        Route::delete('/customers/{customer}', [CustomerController::class, 'destroy'])->name('customers.destroy');
+        Route::post('/customers/{customer}/recalculate', [CustomerController::class, 'recalculate'])->name('customers.recalculate');
+
+        Route::resource('transactions', TransactionController::class)->only(['edit', 'update', 'destroy']);
+
+        Route::resource('staff', StaffController::class)->except(['show', 'destroy'])->parameters(['staff' => 'user']);
+
+        Route::get('/settings', [SettingController::class, 'edit'])->name('settings.edit');
+        Route::put('/settings', [SettingController::class, 'update'])->name('settings.update');
+
+        Route::get('/backups', [BackupController::class, 'index'])->name('backups.index');
+        Route::post('/backups', [BackupController::class, 'store'])->name('backups.store');
+        Route::get('/backups/{backup}', [BackupController::class, 'download'])->name('backups.download');
+    });
 });
 
 require __DIR__.'/auth.php';

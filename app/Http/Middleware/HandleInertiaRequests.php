@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\Setting;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -32,11 +33,14 @@ class HandleInertiaRequests extends Middleware
         return [
             ...parent::share($request),
             'auth' => [
-                'user' => $request->user(),
+                'user' => $request->user()?->only('id', 'name', 'email', 'phone', 'role'),
+                'isAdmin' => (bool) $request->user()?->isAdmin(),
             ],
+            'business' => fn () => collect(Setting::values())
+                ->only('business_name', 'tagline', 'phone', 'address', 'receipt_footer'),
             'flash' => [
-                'success' => fn() => $request->session()->get('success'),
-                'error' => fn() => $request->session()->get('error'),
+                'success' => fn () => $request->session()->get('success'),
+                'error' => fn () => $request->session()->get('error'),
             ],
         ];
     }

@@ -1,50 +1,39 @@
-<template>
-  <div class="p-6">
-    <h1 class="text-2xl font-bold mb-4">Edit Customer</h1>
-    <form @submit.prevent="submit" class="space-y-4 max-w-md">
-      <div>
-        <label class="block">First Name</label>
-        <input v-model="form.first_name" type="text" class="input" />
-        <div v-if="form.errors.first_name" class="text-red-500 text-sm">{{ form.errors.first_name }}</div>
-      </div>
-       <div>
-        <label class="block">Last Name</label>
-        <input v-model="form.last_name" type="text" class="input" />
-        <div v-if="form.errors.last_name" class="text-red-500 text-sm">{{ form.errors.last_name }}</div>
-      </div>
-      <div>
-        <label class="block">Phone</label>
-        <input v-model="form.phone" type="text" class="input" />
-        <div v-if="form.errors.phone" class="text-red-500 text-sm">{{ form.errors.phone }}</div>
-      </div>
-      <div>
-        <label class="block">Reg No</label>
-        <input v-model="form.reg_no" type="text" class="input" />
-        <div v-if="form.errors.reg_no" class="text-red-500 text-sm">{{ form.errors.reg_no }}</div>
-      </div>
-      <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded">Update</button>
-    </form>
-  </div>
-</template>
-
 <script setup>
-import { useForm } from '@inertiajs/vue3'
+import { Link, router, useForm, usePage } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
+import CustomerForm from './Partials/CustomerForm.vue';
 
-defineOptions({
-  layout: AuthenticatedLayout
+const props = defineProps({
+    customer: Object,
 });
-
-const props = defineProps({ customer: Object })
 
 const form = useForm({
     first_name: props.customer.first_name,
     last_name: props.customer.last_name,
-    phone: props.customer.phone,
-    reg_no: props.customer.reg_no
-})
+    phone: props.customer.phone || '',
+    reg_no: props.customer.reg_no || '',
+    email: props.customer.email || '',
+    address: props.customer.address || '',
+});
 
-const submit = () => {
-  form.put(`/customers/${props.customer.id}`)
+const isAdmin = usePage().props.auth.isAdmin;
+
+function destroy() {
+    if (confirm(`Delete ${props.customer.full_name}? Their history is kept but they will no longer appear in lists.`)) {
+        router.delete(route('customers.destroy', props.customer.id));
+    }
 }
 </script>
+
+<template>
+    <AuthenticatedLayout title="Edit Customer" :subtitle="customer.reg_no" :back="route('customers.show', customer.id)">
+        <form class="card max-w-3xl p-5 lg:p-8" @submit.prevent="form.put(route('customers.update', customer.id))">
+            <CustomerForm :form="form" />
+            <div class="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:items-center">
+                <button v-if="isAdmin" type="button" class="btn text-red-600 hover:bg-red-50 sm:mr-auto" @click="destroy">Delete customer</button>
+                <Link :href="route('customers.show', customer.id)" class="btn-secondary">Cancel</Link>
+                <button type="submit" class="btn-primary" :disabled="form.processing">Save Changes</button>
+            </div>
+        </form>
+    </AuthenticatedLayout>
+</template>
