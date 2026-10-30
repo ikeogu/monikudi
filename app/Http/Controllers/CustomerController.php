@@ -160,6 +160,15 @@ class CustomerController extends Controller
         return response()->json($customers);
     }
 
+    /**
+     * The next free customer ID, asked for fresh so it isn't stale if someone
+     * else registered a customer after the form was opened.
+     */
+    public function nextId()
+    {
+        return response()->json(['reg_no' => Customer::nextRegNo()]);
+    }
+
     private function rules(?Customer $customer = null): array
     {
         return [

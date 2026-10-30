@@ -1,8 +1,28 @@
 <script setup>
-defineProps({
+import { ref } from 'vue';
+import axios from 'axios';
+import Icon from '@/Components/Icon.vue';
+
+const props = defineProps({
     form: { type: Object, required: true },
     suggestedRegNo: { type: String, default: '' },
+    canGenerate: { type: Boolean, default: true },
 });
+
+const generating = ref(false);
+
+async function generateRegNo() {
+    generating.value = true;
+    try {
+        const { data } = await axios.get(route('customers.next-id'));
+        props.form.reg_no = data.reg_no;
+        props.form.clearErrors('reg_no');
+    } catch {
+        props.form.setError('reg_no', "Couldn't generate an ID. Check your connection and try again.");
+    } finally {
+        generating.value = false;
+    }
+}
 </script>
 
 <template>
@@ -25,8 +45,14 @@ defineProps({
         </div>
         <div>
             <label for="reg_no" class="label">Customer ID</label>
-            <input id="reg_no" v-model="form.reg_no" type="text" class="input uppercase" :placeholder="suggestedRegNo" />
-            <p v-if="suggestedRegNo" class="mt-1.5 text-xs text-slate-500">Leave blank to use {{ suggestedRegNo }}.</p>
+            <div class="flex gap-2">
+                <input id="reg_no" v-model="form.reg_no" type="text" class="input min-w-0 flex-1 uppercase" :placeholder="suggestedRegNo" />
+                <button v-if="canGenerate" type="button" class="btn-secondary shrink-0" :disabled="generating" @click="generateRegNo">
+                    <Icon name="arrow-path" :class="['h-4 w-4', { 'animate-spin': generating }]" />
+                    Generate
+                </button>
+            </div>
+            <p v-if="suggestedRegNo" class="mt-1.5 text-xs text-slate-500">Tap Generate, or leave blank to use {{ suggestedRegNo }}.</p>
             <p v-if="form.errors.reg_no" class="field-error">{{ form.errors.reg_no }}</p>
         </div>
         <div>

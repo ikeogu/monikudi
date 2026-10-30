@@ -1,0 +1,1 @@
+import{g as s,o as c,r as a}from"./app-CkbLLLUk.js";const _=(t,o)=>{const r=t.__vccOpts||t;for(const[e,n]of o)r[e]=n;return r},l={},f={class:"btn-primary"};function i(t,o){return c(),s("button",f,[a(t.$slots,"default")])}const p=_(l,[["render",i]]);export{p as P};
