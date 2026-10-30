@@ -26,6 +26,18 @@ test('new customers get the next ID for the configured prefix', function () {
     expect(Customer::nextRegNo())->toBe('GDC0000001');
 });
 
+test('the generate button gets the next free customer ID', function () {
+    Customer::factory()->create(['reg_no' => 'AJ0000125']);
+
+    $this->actingAs(User::factory()->collector()->create())
+        ->getJson(route('customers.next-id'))
+        ->assertOk()
+        ->assertExactJson(['reg_no' => 'AJ0000126']);
+
+    auth()->logout();
+    $this->getJson(route('customers.next-id'))->assertUnauthorized();
+});
+
 test('a customer ID or phone number cannot be reused', function () {
     Customer::factory()->create(['reg_no' => 'AJ0000001', 'phone' => '08011111111']);
 

@@ -28,7 +28,7 @@ function destroy() {
 <template>
     <AuthenticatedLayout title="Edit Customer" :subtitle="customer.reg_no" :back="route('customers.show', customer.id)">
         <form class="card max-w-3xl p-5 lg:p-8" @submit.prevent="form.put(route('customers.update', customer.id))">
-            <CustomerForm :form="form" />
+            <CustomerForm :form="form" :can-generate="!customer.reg_no" />
             <div class="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:items-center">
                 <button v-if="isAdmin" type="button" class="btn text-red-600 hover:bg-red-50 sm:mr-auto" @click="destroy">Delete customer</button>
                 <Link :href="route('customers.show', customer.id)" class="btn-secondary">Cancel</Link>

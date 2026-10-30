@@ -21,6 +21,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
 
     Route::get('/customers/search', [CustomerController::class, 'search'])->name('customers.search');
+    Route::get('/customers/next-id', [CustomerController::class, 'nextId'])->name('customers.next-id');
     Route::resource('customers', CustomerController::class)->except('destroy');
 
     Route::resource('transactions', TransactionController::class)->only(['index', 'create', 'store', 'show']);
