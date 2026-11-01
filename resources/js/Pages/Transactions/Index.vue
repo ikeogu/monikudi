@@ -33,9 +33,10 @@ const types = [
     { value: 'debit', label: 'Withdrawals' },
 ];
 
+const params = computed(() => Object.fromEntries(Object.entries(filters).filter(([, value]) => value !== '')));
+
 function apply() {
-    const params = Object.fromEntries(Object.entries(filters).filter(([, value]) => value !== ''));
-    router.get(route('transactions.index'), params, { preserveState: true, preserveScroll: true, replace: true });
+    router.get(route('transactions.index'), params.value, { preserveState: true, preserveScroll: true, replace: true });
 }
 
 let timer = null;
@@ -49,6 +50,9 @@ watch(() => [filters.type, filters.from, filters.to, filters.collector], apply);
 <template>
     <AuthenticatedLayout :title="title">
         <template #actions>
+            <a :href="route('transactions.export', params)" class="btn-secondary">
+                <Icon name="arrow-down-tray" class="h-5 w-5" /> Excel
+            </a>
             <Link :href="route('transactions.create', { type: filters.type === 'debit' ? 'debit' : 'credit' })" class="btn-primary hidden lg:inline-flex">
                 <Icon name="plus" class="h-4 w-4" /> {{ filters.type === 'debit' ? 'New Withdrawal' : 'New Deposit' }}
             </Link>

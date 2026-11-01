@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Customer;
 use App\Models\Transaction;
 use App\Models\User;
+use App\Support\Spreadsheet;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -27,31 +28,10 @@ class CollectionController extends Controller
      */
     public function index(Request $request)
     {
-        $filters = $request->validate([
-            'period' => ['nullable', Rule::in(self::PERIODS)],
-            'view' => ['nullable', Rule::in(self::VIEWS)],
-            'date' => 'nullable|date',
-            'month' => 'nullable|date_format:Y-m',
-            'from' => 'nullable|required_if:period,range|date',
-            'to' => 'nullable|required_if:period,range|date|after_or_equal:from',
-            'customer' => 'nullable|string',
-            'type' => ['nullable', Rule::in([Transaction::TYPE_DEPOSIT, Transaction::TYPE_WITHDRAWAL])],
-            'collector' => 'nullable|integer',
-            'method' => ['nullable', Rule::in(array_keys(Transaction::PAYMENT_METHODS))],
-        ]);
-
-        $period = $filters['period'] ?? 'month';
-        [$from, $to] = $this->range($period, $filters);
+        [$filters, $from, $to, $query] = $this->filtered($request);
+        $period = $filters['period'];
         // A single day only has one total, so it always shows its entries.
         $view = $period === 'day' ? 'list' : ($filters['view'] ?? 'totals');
-
-        $query = Transaction::query()
-            ->visibleTo($request->user())
-            ->betweenDates($from->toDateString(), $to->toDateString())
-            ->when($filters['customer'] ?? null, fn ($query, $customer) => $query->where('customer_id', $customer))
-            ->when($filters['type'] ?? null, fn ($query, $type) => $query->where('type', $type))
-            ->when($filters['collector'] ?? null, fn ($query, $collector) => $query->where('collected_by', $collector))
-            ->when($filters['method'] ?? null, fn ($query, $method) => $query->where('payment_method', $method));
 
         $days = collect($this->dailyTotals(clone $query, $from, $to));
         $activeDays = $days->where('count', '>', 0)->count();
@@ -98,6 +78,72 @@ class CollectionController extends Controller
             'collectors' => $request->user()->isAdmin() ? User::orderBy('name')->get(['id', 'name']) : [],
             'paymentMethods' => Transaction::PAYMENT_METHODS,
         ]);
+    }
+
+    /**
+     * The same daily totals and entries as an Excel workbook with one sheet each.
+     */
+    public function export(Request $request)
+    {
+        [$filters, $from, $to, $query] = $this->filtered($request);
+
+        $days = collect($this->dailyTotals(clone $query, $from, $to));
+        $totals = $days->map(fn ($day) => [
+            $day['date'], CarbonImmutable::parse($day['date'])->format('l'), $day['count'],
+            $day['deposits'], $day['withdrawals'], $day['net'], $day['running'],
+        ])->push(['Total', null, $days->sum('count'), $days->sum('deposits'), $days->sum('withdrawals'), $days->sum('net'), null]);
+
+        $entries = $query->with(['customer', 'collector:id,name'])
+            ->orderBy('date')
+            ->orderBy('created_at')
+            ->lazy(500)
+            ->map->toExportRow();
+
+        $range = match ($filters['period']) {
+            'day' => $from->toDateString(),
+            'month' => $from->format('Y-m'),
+            'range' => "{$from->toDateString()}-to-{$to->toDateString()}",
+        };
+        $customer = isset($filters['customer']) ? Customer::withTrashed()->find($filters['customer'])?->reg_no : null;
+
+        return Spreadsheet::make()
+            ->sheet('Daily totals', ['Date', 'Day', 'Entries', 'Deposits', 'Withdrawals', 'Net', 'Running total'], $totals)
+            ->sheet('Entries', Transaction::EXPORT_HEADINGS, $entries)
+            ->download('collections-'.$range.($customer ? "-{$customer}" : '').'.xlsx');
+    }
+
+    /**
+     * The validated filters, the dates they cover and a query for the matching entries.
+     *
+     * @return array{0: array, 1: CarbonImmutable, 2: CarbonImmutable, 3: Builder}
+     */
+    private function filtered(Request $request): array
+    {
+        $filters = $request->validate([
+            'period' => ['nullable', Rule::in(self::PERIODS)],
+            'view' => ['nullable', Rule::in(self::VIEWS)],
+            'date' => 'nullable|date',
+            'month' => 'nullable|date_format:Y-m',
+            'from' => 'nullable|required_if:period,range|date',
+            'to' => 'nullable|required_if:period,range|date|after_or_equal:from',
+            'customer' => 'nullable|string',
+            'type' => ['nullable', Rule::in([Transaction::TYPE_DEPOSIT, Transaction::TYPE_WITHDRAWAL])],
+            'collector' => 'nullable|integer',
+            'method' => ['nullable', Rule::in(array_keys(Transaction::PAYMENT_METHODS))],
+        ]);
+
+        $filters['period'] ??= 'month';
+        [$from, $to] = $this->range($filters['period'], $filters);
+
+        $query = Transaction::query()
+            ->visibleTo($request->user())
+            ->betweenDates($from->toDateString(), $to->toDateString())
+            ->when($filters['customer'] ?? null, fn ($query, $customer) => $query->where('customer_id', $customer))
+            ->when($filters['type'] ?? null, fn ($query, $type) => $query->where('type', $type))
+            ->when($filters['collector'] ?? null, fn ($query, $collector) => $query->where('collected_by', $collector))
+            ->when($filters['method'] ?? null, fn ($query, $method) => $query->where('payment_method', $method));
+
+        return [$filters, $from, $to, $query];
     }
 
     /**

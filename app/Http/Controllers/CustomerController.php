@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Customer;
 use App\Models\Transaction;
 use App\Services\Ledger;
+use App\Support\Spreadsheet;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -58,6 +60,64 @@ class CustomerController extends Controller
      */
     public function show(Request $request, Customer $customer)
     {
+        $statement = $this->statement($request, $customer);
+        $history = $statement['history'];
+
+        return Inertia::render('Customers/Show', [
+            'customer' => $customer->load('registeredBy:id,name'),
+            'summary' => [
+                'deposits' => (float) $history->where('type', Transaction::TYPE_DEPOSIT)->sum('amount'),
+                'withdrawals' => (float) $history->where('type', Transaction::TYPE_WITHDRAWAL)->sum('amount'),
+                'balance' => $customer->balance,
+                'opening' => $statement['opening'],
+                'historyBalance' => $statement['closing'],
+            ],
+            'transactions' => array_reverse($statement['entries']),
+            'filters' => $statement['filters'],
+        ]);
+    }
+
+    /**
+     * The statement as an Excel sheet, oldest entry first.
+     */
+    public function export(Request $request, Customer $customer)
+    {
+        $statement = $this->statement($request, $customer);
+        $filters = $statement['filters'];
+
+        $rows = array_map(fn (Transaction $t) => [
+            $t->date->toDateString(),
+            $t->created_at?->format('H:i'),
+            $t->receipt_no,
+            $t->isDeposit() ? 'Deposit' : 'Withdrawal',
+            Transaction::PAYMENT_METHODS[$t->payment_method] ?? $t->payment_method,
+            $t->collector?->name,
+            $t->description,
+            $t->isDeposit() ? $t->amount : null,
+            $t->isDeposit() ? null : $t->amount,
+            $t->running_balance,
+        ], $statement['entries']);
+
+        if (! empty($filters['from'])) {
+            array_unshift($rows, [$filters['from'], null, null, 'Opening balance', null, null, null, null, null, $statement['opening']]);
+        }
+
+        $dates = empty($filters['from']) && empty($filters['to']) ? '' : '-'.($filters['from'] ?? 'start').'-to-'.($filters['to'] ?? 'today');
+
+        return Spreadsheet::make()
+            ->sheet($customer->reg_no ?: 'Statement', [
+                'Date', 'Time', 'Receipt No', 'Type', 'Payment Method', 'Collected By', 'Remarks', 'Deposit', 'Withdrawal', 'Balance',
+            ], $rows)
+            ->download("statement-{$customer->reg_no}{$dates}.xlsx");
+    }
+
+    /**
+     * Every entry with the running balance after it, limited to the requested dates.
+     *
+     * @return array{filters: array, history: Collection, entries: list<Transaction>, opening: float, closing: float}
+     */
+    private function statement(Request $request, Customer $customer): array
+    {
         $filters = $request->validate([
             'from' => 'nullable|date',
             'to' => 'nullable|date|after_or_equal:from',
@@ -74,7 +134,7 @@ class CustomerController extends Controller
         $entries = [];
         foreach ($history as $transaction) {
             $running += $transaction->isDeposit() ? $transaction->amount : -$transaction->amount;
-            $date = substr($transaction->date, 0, 10);
+            $date = $transaction->date->toDateString();
 
             if (! empty($filters['from']) && $date < $filters['from']) {
                 $opening = $running;
@@ -85,21 +145,16 @@ class CustomerController extends Controller
                 continue;
             }
 
-            $entries[] = [...$transaction->toArray(), 'running_balance' => round($running, 2)];
+            $entries[] = $transaction->setAttribute('running_balance', round($running, 2));
         }
 
-        return Inertia::render('Customers/Show', [
-            'customer' => $customer->load('registeredBy:id,name'),
-            'summary' => [
-                'deposits' => (float) $history->where('type', Transaction::TYPE_DEPOSIT)->sum('amount'),
-                'withdrawals' => (float) $history->where('type', Transaction::TYPE_WITHDRAWAL)->sum('amount'),
-                'balance' => $customer->balance,
-                'opening' => round($opening, 2),
-                'historyBalance' => round($running, 2),
-            ],
-            'transactions' => array_reverse($entries),
+        return [
             'filters' => $filters,
-        ]);
+            'history' => $history,
+            'entries' => $entries,
+            'opening' => round($opening, 2),
+            'closing' => round($running, 2),
+        ];
     }
 
     /**

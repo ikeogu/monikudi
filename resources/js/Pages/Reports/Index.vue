@@ -45,8 +45,11 @@ function printReport() {
 <template>
     <AuthenticatedLayout title="Reports" :subtitle="rangeLabel">
         <template #actions>
+            <a :href="route('reports.export', { period, date: range.from, format: 'xlsx' })" class="btn-secondary">
+                <Icon name="arrow-down-tray" class="h-5 w-5" /> Excel
+            </a>
             <a :href="route('reports.export', { period, date: range.from })" class="btn-secondary">
-                <Icon name="arrow-down-tray" class="h-5 w-5" /> Export CSV
+                <Icon name="arrow-down-tray" class="h-5 w-5" /> CSV
             </a>
             <button type="button" class="btn-secondary" @click="printReport">
                 <Icon name="printer" class="h-5 w-5" /> Print

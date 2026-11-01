@@ -28,6 +28,12 @@ class Transaction extends Model
         'pos' => 'POS',
     ];
 
+    /** Column headings for exported entries, in toExportRow() order. */
+    public const EXPORT_HEADINGS = [
+        'Date', 'Time', 'Receipt No', 'Customer ID', 'Customer Name', 'Phone',
+        'Type', 'Amount', 'Payment Method', 'Collected By', 'Remarks', 'Balance After',
+    ];
+
     protected $fillable = [
         'customer_id',
         'date',
@@ -68,6 +74,27 @@ class Transaction extends Model
     public function isDeposit(): bool
     {
         return $this->type === self::TYPE_DEPOSIT;
+    }
+
+    /**
+     * The entry as one CSV/spreadsheet row; expects customer and collector to be loaded.
+     */
+    public function toExportRow(): array
+    {
+        return [
+            $this->date->toDateString(),
+            $this->created_at?->format('H:i'),
+            $this->receipt_no,
+            $this->customer?->reg_no,
+            $this->customer?->full_name,
+            $this->customer?->phone,
+            $this->isDeposit() ? 'Deposit' : 'Withdrawal',
+            $this->amount,
+            self::PAYMENT_METHODS[$this->payment_method] ?? $this->payment_method,
+            $this->collector?->name,
+            $this->description,
+            $this->balance_after,
+        ];
     }
 
     /**
