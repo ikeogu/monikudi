@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\BackupController;
+use App\Http\Controllers\CollectionController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ProfileController;
@@ -25,6 +26,8 @@ Route::middleware(['auth'])->group(function () {
     Route::resource('customers', CustomerController::class)->except('destroy');
 
     Route::resource('transactions', TransactionController::class)->only(['index', 'create', 'store', 'show']);
+
+    Route::get('/collections', [CollectionController::class, 'index'])->name('collections.index');
 
     Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
     Route::get('/reports/export', [ReportController::class, 'export'])->name('reports.export');

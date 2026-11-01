@@ -35,6 +35,7 @@ const navigation = computed(() => [
     { label: 'Deposits', icon: 'arrow-down-circle', href: route('transactions.index', { type: 'credit' }), active: transactionType.value === 'credit' },
     { label: 'Withdrawals', icon: 'arrow-up-circle', href: route('transactions.index', { type: 'debit' }), active: transactionType.value === 'debit' },
     { label: 'Transactions', icon: 'arrows-right-left', href: route('transactions.index'), active: path.value.startsWith('/transactions') && !transactionType.value },
+    { label: 'Daily Collections', icon: 'calendar', href: route('collections.index'), active: path.value.startsWith('/collections') },
     { label: 'Reports', icon: 'chart-bar', href: route('reports.index'), active: path.value.startsWith('/reports') },
     ...(isAdmin.value
         ? [

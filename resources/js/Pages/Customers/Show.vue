@@ -78,6 +78,9 @@ function recalculate() {
                     <a :href="shareUrl" target="_blank" rel="noopener" class="rounded-lg p-2 text-[#1ebe5b] hover:bg-emerald-50" title="Share on WhatsApp">
                         <Icon name="whatsapp" class="h-5 w-5" />
                     </a>
+                    <Link :href="route('collections.index', { customer: customer.id })" class="rounded-lg p-2 text-slate-500 hover:bg-slate-100" title="Daily collections">
+                        <Icon name="calendar" class="h-5 w-5" />
+                    </Link>
                     <button type="button" class="rounded-lg p-2 text-slate-500 hover:bg-slate-100" title="Print statement" @click="printStatement">
                         <Icon name="printer" class="h-5 w-5" />
                     </button>
