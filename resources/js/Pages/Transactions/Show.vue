@@ -1,10 +1,11 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed } from 'vue';
 import { Link, router, usePage } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import ApplicationLogo from '@/Components/ApplicationLogo.vue';
 import Icon from '@/Components/Icon.vue';
+import ThermalSlip from '@/Components/ThermalSlip.vue';
 import { entryDateTime, isDeposit, naira, typeLabel } from '@/utils/format';
+import { paper, setPaper, SLIP_PAGE_CSS, usePageStyle } from '@/utils/print';
 import { receiptText, whatsappUrl } from '@/utils/share';
 
 const props = defineProps({
@@ -19,35 +20,8 @@ const deposit = computed(() => isDeposit(props.transaction));
 const text = computed(() => receiptText(props.transaction, business.value));
 const canShare = typeof navigator !== 'undefined' && Boolean(navigator.share);
 
-// Thermal printers come in 58mm and 80mm rolls; remember the choice per device.
-const paper = ref(readPaper());
-let pageStyle = null;
-
-function readPaper() {
-    try {
-        return localStorage.getItem('receipt-paper') || '80';
-    } catch {
-        return '80';
-    }
-}
-
-function applyPageSize() {
-    pageStyle.textContent = `@media print { @page { size: ${paper.value}mm auto; margin: 3mm; } }`;
-}
-
-onMounted(() => {
-    pageStyle = document.createElement('style');
-    document.head.appendChild(pageStyle);
-    applyPageSize();
-});
-onBeforeUnmount(() => pageStyle?.remove());
-
-watch(paper, (value) => {
-    try {
-        localStorage.setItem('receipt-paper', value);
-    } catch {}
-    applyPageSize();
-});
+// Receipts always print on the thermal roll chosen on this device (58mm or 80mm).
+usePageStyle(() => SLIP_PAGE_CSS);
 
 function printReceipt() {
     window.print();
@@ -69,42 +43,33 @@ function destroy() {
         <div class="mx-auto flex max-w-4xl flex-col gap-6 lg:flex-row lg:items-start">
             <!-- The receipt itself: the only thing that prints -->
             <div
-                :class="['receipt mx-auto w-full rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 print:rounded-none print:p-0 print:shadow-none print:ring-0', paper === '58' ? 'max-w-[58mm] text-[11px]' : 'max-w-sm text-sm']"
+                :class="[
+                    'mx-auto w-full rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200 print:w-auto print:max-w-none print:rounded-none print:p-0 print:shadow-none print:ring-0',
+                    paper === '58' ? 'max-w-[19rem]' : 'max-w-sm',
+                ]"
             >
-                <div class="flex flex-col items-center text-center">
-                    <ApplicationLogo class="h-12 w-12 text-brand-800 print:text-black" style="--logo-accent: #3c63ef" />
-                    <p class="mt-2 font-extrabold uppercase tracking-wide text-brand-800 print:text-black">{{ business.business_name }}</p>
-                    <p v-if="business.address" class="text-xs text-slate-500 print:text-black">{{ business.address }}</p>
-                    <p v-if="business.phone" class="text-xs text-slate-500 print:text-black">{{ business.phone }}</p>
-                    <p class="mt-3 font-bold tracking-[0.2em]">RECEIPT</p>
-                    <p class="text-xs text-slate-500 print:text-black">{{ transaction.receipt_no }}</p>
-                </div>
+                <ThermalSlip :paper="paper" heading="RECEIPT" :reference="transaction.receipt_no">
+                    <dl class="mt-4 space-y-1.5 border-y border-dashed border-slate-300 py-3 print:mt-2 print:space-y-0.5 print:border-black print:py-2">
+                        <div class="flex justify-between gap-3"><dt class="text-slate-500 print:text-black">Date</dt><dd class="text-right">{{ entryDateTime(transaction) }}</dd></div>
+                        <div class="flex justify-between gap-3"><dt class="text-slate-500 print:text-black">Customer ID</dt><dd class="text-right">{{ transaction.customer.reg_no }}</dd></div>
+                        <div class="flex justify-between gap-3"><dt class="text-slate-500 print:text-black">Customer</dt><dd class="text-right">{{ transaction.customer.full_name }}</dd></div>
+                        <div class="flex justify-between gap-3"><dt class="text-slate-500 print:text-black">Type</dt><dd class="text-right">{{ typeLabel(transaction.type) }}</dd></div>
+                        <div class="flex justify-between gap-3"><dt class="text-slate-500 print:text-black">Method</dt><dd class="text-right">{{ paymentMethods[transaction.payment_method] || transaction.payment_method }}</dd></div>
+                        <div v-if="transaction.description" class="flex justify-between gap-3"><dt class="text-slate-500 print:text-black">Remarks</dt><dd class="text-right">{{ transaction.description }}</dd></div>
+                        <div class="flex justify-between gap-3"><dt class="text-slate-500 print:text-black">{{ deposit ? 'Collected by' : 'Paid by' }}</dt><dd class="text-right">{{ transaction.collector?.name || '—' }}</dd></div>
+                    </dl>
 
-                <dl class="mt-4 space-y-1.5 border-y border-dashed border-slate-300 py-3 print:border-black">
-                    <div class="flex justify-between gap-3"><dt class="text-slate-500 print:text-black">Date</dt><dd class="text-right">{{ entryDateTime(transaction) }}</dd></div>
-                    <div class="flex justify-between gap-3"><dt class="text-slate-500 print:text-black">Customer ID</dt><dd class="text-right">{{ transaction.customer.reg_no }}</dd></div>
-                    <div class="flex justify-between gap-3"><dt class="text-slate-500 print:text-black">Customer</dt><dd class="text-right">{{ transaction.customer.full_name }}</dd></div>
-                    <div class="flex justify-between gap-3"><dt class="text-slate-500 print:text-black">Type</dt><dd class="text-right">{{ typeLabel(transaction.type) }}</dd></div>
-                    <div class="flex justify-between gap-3"><dt class="text-slate-500 print:text-black">Method</dt><dd class="text-right">{{ paymentMethods[transaction.payment_method] || transaction.payment_method }}</dd></div>
-                    <div v-if="transaction.description" class="flex justify-between gap-3"><dt class="text-slate-500 print:text-black">Remarks</dt><dd class="text-right">{{ transaction.description }}</dd></div>
-                    <div class="flex justify-between gap-3"><dt class="text-slate-500 print:text-black">{{ deposit ? 'Collected by' : 'Paid by' }}</dt><dd class="text-right">{{ transaction.collector?.name || '—' }}</dd></div>
-                </dl>
-
-                <div class="space-y-1 py-3">
-                    <div class="flex items-baseline justify-between">
-                        <span class="font-semibold">Amount</span>
-                        <span :class="['text-xl font-extrabold print:text-black', deposit ? 'text-emerald-600' : 'text-red-600']">{{ naira(transaction.amount) }}</span>
+                    <div class="space-y-1 py-3 print:py-2">
+                        <div class="flex items-baseline justify-between gap-2">
+                            <span class="font-semibold">Amount</span>
+                            <span :class="['text-[1.45em] font-extrabold print:text-black', deposit ? 'text-emerald-600' : 'text-red-600']">{{ naira(transaction.amount) }}</span>
+                        </div>
+                        <div v-if="transaction.balance_after !== null" class="flex justify-between gap-2">
+                            <span class="text-slate-500 print:text-black">Balance</span>
+                            <span class="font-semibold">{{ naira(transaction.balance_after) }}</span>
+                        </div>
                     </div>
-                    <div v-if="transaction.balance_after !== null" class="flex justify-between">
-                        <span class="text-slate-500 print:text-black">Balance</span>
-                        <span class="font-semibold">{{ naira(transaction.balance_after) }}</span>
-                    </div>
-                </div>
-
-                <div class="border-t border-dashed border-slate-300 pt-3 text-center text-xs print:border-black">
-                    <p class="font-medium">{{ business.receipt_footer }}</p>
-                    <p class="text-slate-500 print:text-black">{{ business.tagline }}</p>
-                </div>
+                </ThermalSlip>
             </div>
 
             <!-- Actions -->
@@ -122,7 +87,7 @@ function destroy() {
                         :key="size"
                         type="button"
                         :class="['rounded-full px-2.5 py-0.5 font-medium ring-1', paper === size ? 'bg-brand-800 text-white ring-brand-800' : 'ring-slate-300']"
-                        @click="paper = size"
+                        @click="setPaper(size)"
                     >
                         {{ size }}mm
                     </button>

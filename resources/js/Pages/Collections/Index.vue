@@ -126,6 +126,9 @@ watch(selectedCustomer, () => visit());
 <template>
     <AuthenticatedLayout title="Daily Collections" :subtitle="periodLabel">
         <template #actions>
+            <a :href="route('collections.export', query())" class="btn-secondary">
+                <Icon name="arrow-down-tray" class="h-5 w-5" /> Excel
+            </a>
             <button type="button" class="btn-secondary" @click="printPage">
                 <Icon name="printer" class="h-5 w-5" /> Print
             </button>

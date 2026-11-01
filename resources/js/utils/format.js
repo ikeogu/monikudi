@@ -9,6 +9,12 @@ export function naira(value) {
     return nairaFormatter.format(Number(value || 0));
 }
 
+/** ₦1,500 for whole amounts, ₦1,500.50 otherwise; for narrow thermal slips. */
+export function nairaTight(value) {
+    const amount = Number(value || 0);
+    return Number.isInteger(amount) ? `${amount < 0 ? '-' : ''}₦${Math.abs(amount).toLocaleString('en-NG')}` : naira(amount);
+}
+
 /** ₦286.8K, for chart axes and tight spaces. */
 export function nairaCompact(value) {
     return `₦${compactFormatter.format(Number(value || 0))}`;

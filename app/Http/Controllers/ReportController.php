@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Customer;
 use App\Models\Transaction;
+use App\Support\Spreadsheet;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -59,7 +60,7 @@ class ReportController extends Controller
     }
 
     /**
-     * Every entry in the selected period as a CSV file.
+     * Every entry in the selected period as a CSV file, or an Excel file with format=xlsx.
      */
     public function export(Request $request)
     {
@@ -72,33 +73,27 @@ class ReportController extends Controller
             ->orderBy('date')
             ->orderBy('created_at');
 
-        $filename = "{$period}-report-{$from->toDateString()}".($period === 'daily' ? '' : "-to-{$to->toDateString()}").'.csv';
+        $filename = "{$period}-report-{$from->toDateString()}".($period === 'daily' ? '' : "-to-{$to->toDateString()}");
+
+        if ($request->input('format') === 'xlsx') {
+            return Spreadsheet::make()
+                ->sheet('Entries', Transaction::EXPORT_HEADINGS, $query->lazy(500)->map->toExportRow())
+                ->download("{$filename}.xlsx");
+        }
 
         return response()->streamDownload(function () use ($query) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['Date', 'Time', 'Receipt No', 'Customer ID', 'Customer Name', 'Phone', 'Type', 'Amount', 'Payment Method', 'Collected By', 'Remarks', 'Balance After']);
+            fputcsv($out, Transaction::EXPORT_HEADINGS);
 
-            $query->chunk(500, function ($transactions) use ($out) {
-                foreach ($transactions as $t) {
-                    fputcsv($out, [
-                        substr($t->date, 0, 10),
-                        $t->created_at?->format('H:i'),
-                        $t->receipt_no,
-                        $t->customer?->reg_no,
-                        $t->customer?->full_name,
-                        $t->customer?->phone,
-                        $t->isDeposit() ? 'Deposit' : 'Withdrawal',
-                        number_format($t->amount, 2, '.', ''),
-                        Transaction::PAYMENT_METHODS[$t->payment_method] ?? $t->payment_method,
-                        $t->collector?->name,
-                        $t->description,
-                        $t->balance_after === null ? '' : number_format($t->balance_after, 2, '.', ''),
-                    ]);
-                }
-            });
+            foreach ($query->lazy(500) as $transaction) {
+                fputcsv($out, array_map(
+                    fn ($value) => is_float($value) ? number_format($value, 2, '.', '') : $value,
+                    $transaction->toExportRow(),
+                ));
+            }
 
             fclose($out);
-        }, $filename, ['Content-Type' => 'text/csv']);
+        }, "{$filename}.csv", ['Content-Type' => 'text/csv']);
     }
 
     /**

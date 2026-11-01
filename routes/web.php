@@ -24,10 +24,13 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/customers/search', [CustomerController::class, 'search'])->name('customers.search');
     Route::get('/customers/next-id', [CustomerController::class, 'nextId'])->name('customers.next-id');
     Route::resource('customers', CustomerController::class)->except('destroy');
+    Route::get('/customers/{customer}/export', [CustomerController::class, 'export'])->name('customers.export');
 
+    Route::get('/transactions/export', [TransactionController::class, 'export'])->name('transactions.export');
     Route::resource('transactions', TransactionController::class)->only(['index', 'create', 'store', 'show']);
 
     Route::get('/collections', [CollectionController::class, 'index'])->name('collections.index');
+    Route::get('/collections/export', [CollectionController::class, 'export'])->name('collections.export');
 
     Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
     Route::get('/reports/export', [ReportController::class, 'export'])->name('reports.export');

@@ -6,6 +6,8 @@ use App\Models\Customer;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Services\Ledger;
+use App\Support\Spreadsheet;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -17,21 +19,7 @@ class TransactionController extends Controller
      */
     public function index(Request $request)
     {
-        $filters = $request->validate([
-            'search' => 'nullable|string|max:100',
-            'type' => ['nullable', Rule::in([Transaction::TYPE_DEPOSIT, Transaction::TYPE_WITHDRAWAL])],
-            'from' => 'nullable|date',
-            'to' => 'nullable|date',
-            'collector' => 'nullable|integer',
-        ]);
-
-        $query = Transaction::query()
-            ->visibleTo($request->user())
-            ->when($filters['search'] ?? null, fn ($query, $search) => $query->whereHas('customer', fn ($query) => $query->search($search)))
-            ->when($filters['type'] ?? null, fn ($query, $type) => $query->where('type', $type))
-            ->when($filters['from'] ?? null, fn ($query, $from) => $query->where('date', '>=', $from))
-            ->when($filters['to'] ?? null, fn ($query, $to) => $query->where('date', '<=', $to))
-            ->when($filters['collector'] ?? null, fn ($query, $collector) => $query->where('collected_by', $collector));
+        [$filters, $query] = $this->filtered($request);
 
         return Inertia::render('Transactions/Index', [
             'transactions' => (clone $query)
@@ -48,6 +36,29 @@ class TransactionController extends Controller
             'collectors' => $request->user()->isAdmin() ? User::orderBy('name')->get(['id', 'name']) : [],
             'paymentMethods' => Transaction::PAYMENT_METHODS,
         ]);
+    }
+
+    /**
+     * The filtered list as an Excel file, newest first.
+     */
+    public function export(Request $request)
+    {
+        [$filters, $query] = $this->filtered($request);
+        $name = match ($filters['type'] ?? null) {
+            Transaction::TYPE_DEPOSIT => 'Deposits',
+            Transaction::TYPE_WITHDRAWAL => 'Withdrawals',
+            default => 'Transactions',
+        };
+
+        $rows = $query->with(['customer', 'collector:id,name'])
+            ->orderByDesc('date')
+            ->orderByDesc('created_at')
+            ->lazy(500)
+            ->map->toExportRow();
+
+        return Spreadsheet::make()
+            ->sheet($name, Transaction::EXPORT_HEADINGS, $rows)
+            ->download(strtolower($name).'-'.today()->toDateString().'.xlsx');
     }
 
     /**
@@ -118,6 +129,32 @@ class TransactionController extends Controller
         $ledger->delete($transaction);
 
         return redirect()->route('customers.show', $transaction->customer_id)->with('success', 'Transaction deleted and balance adjusted.');
+    }
+
+    /**
+     * The validated list filters and a query for the matching entries.
+     *
+     * @return array{0: array, 1: Builder}
+     */
+    private function filtered(Request $request): array
+    {
+        $filters = $request->validate([
+            'search' => 'nullable|string|max:100',
+            'type' => ['nullable', Rule::in([Transaction::TYPE_DEPOSIT, Transaction::TYPE_WITHDRAWAL])],
+            'from' => 'nullable|date',
+            'to' => 'nullable|date',
+            'collector' => 'nullable|integer',
+        ]);
+
+        $query = Transaction::query()
+            ->visibleTo($request->user())
+            ->when($filters['search'] ?? null, fn ($query, $search) => $query->whereHas('customer', fn ($query) => $query->search($search)))
+            ->when($filters['type'] ?? null, fn ($query, $type) => $query->where('type', $type))
+            ->when($filters['from'] ?? null, fn ($query, $from) => $query->where('date', '>=', $from))
+            ->when($filters['to'] ?? null, fn ($query, $to) => $query->where('date', '<=', $to))
+            ->when($filters['collector'] ?? null, fn ($query, $collector) => $query->where('collected_by', $collector));
+
+        return [$filters, $query];
     }
 
     private function rules(User $user): array
