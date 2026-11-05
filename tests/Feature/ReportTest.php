@@ -13,7 +13,7 @@ beforeEach(function () {
     $customer = Customer::factory()->create();
     $ledger = app(Ledger::class);
 
-    $post = fn ($by, $type, $amount, $date, $method = 'cash') => $ledger->record($customer, [
+    $post = fn ($by, $type, $amount, $date, $method = 'cash') => $ledger->record($customer->plans()->first(), [
         'type' => $type, 'amount' => $amount, 'date' => $date, 'payment_method' => $method, 'collected_by' => $by->id,
     ], $by);
 

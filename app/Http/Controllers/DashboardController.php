@@ -3,8 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Customer;
+use App\Models\SavingsPlan;
 use App\Models\Transaction;
-use App\Models\User;
 use App\Services\BackupManager;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -35,12 +35,18 @@ class DashboardController extends Controller
                 'todayWithdrawalsCount' => $visible()->withdrawals()->where('date', $today)->count(),
                 'totalDeposits' => (float) $visible()->deposits()->sum('amount'),
                 'totalWithdrawals' => (float) $visible()->withdrawals()->sum('amount'),
-                'activeStaff' => $user->isAdmin() ? User::active()->count() : null,
+                // Commission is the business's income, so only admins see it.
+                'todayCommission' => $user->isAdmin() ? (float) Transaction::commissions()->where('date', $today)->sum('amount') : null,
+                'monthCommission' => $user->isAdmin()
+                    ? (float) Transaction::commissions()->betweenDates(today()->startOfMonth()->toDateString(), $today)->sum('amount')
+                    : null,
             ],
+            'plansNeedingAmount' => $user->isAdmin() ? SavingsPlan::active()->whereNull('daily_amount')->count() : 0,
             'chart' => $this->monthChart($visible()),
             'recentTransactions' => $visible()
-                ->with(['customer:id,reg_no,first_name,last_name,phone', 'collector:id,name'])
+                ->with(['customer:id,reg_no,first_name,last_name,phone', 'plan:id,name', 'collector:id,name'])
                 ->latest()
+                ->orderByDesc('id')
                 ->take(6)
                 ->get(),
             'topCustomers' => $user->isAdmin()

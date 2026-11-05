@@ -1,14 +1,18 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
-import { useForm, usePage } from '@inertiajs/vue3';
+import { Link, useForm, usePage } from '@inertiajs/vue3';
+import axios from 'axios';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import CustomerPicker from '@/Components/CustomerPicker.vue';
+import PlanPicker from '@/Components/PlanPicker.vue';
 import EntryFields from './Partials/EntryFields.vue';
 import { isOnline } from '@/utils/pwa';
 
 const props = defineProps({
     type: String,
     customer: Object,
+    plans: Array,
+    plan: String,
     collectors: Array,
     paymentMethods: Object,
     today: String,
@@ -16,21 +20,56 @@ const props = defineProps({
 
 const page = usePage();
 const selectedCustomer = ref(props.customer);
+const plans = ref(props.plans);
+const loadingPlans = ref(false);
 
 const form = useForm({
     customer_id: props.customer?.id ?? '',
+    savings_plan_id: pickPlan(props.plans, props.plan),
     type: props.type,
     amount: '',
     date: props.today,
     payment_method: 'cash',
     collected_by: page.props.auth.user.id,
     description: '',
+    close_plan: true,
 });
-
-watch(selectedCustomer, (customer) => (form.customer_id = customer?.id ?? ''));
 
 const isDeposit = computed(() => form.type === 'credit');
 const title = computed(() => (isDeposit.value ? 'New Deposit' : 'New Withdrawal'));
+const selectedPlan = computed(() => plans.value.find((plan) => plan.id === form.savings_plan_id) ?? null);
+
+function pickPlan(list, preferred = null) {
+    return (list.find((plan) => plan.id === preferred) ?? list[0])?.id ?? '';
+}
+
+watch(selectedCustomer, async (customer) => {
+    form.customer_id = customer?.id ?? '';
+    form.savings_plan_id = '';
+    plans.value = [];
+    if (!customer) return;
+
+    loadingPlans.value = true;
+    try {
+        const { data } = await axios.get(route('customers.plans', customer.id));
+        if (selectedCustomer.value?.id === customer.id) {
+            plans.value = data;
+            form.savings_plan_id = pickPlan(data);
+        }
+    } finally {
+        loadingPlans.value = false;
+    }
+});
+
+// A deposit starts at one day's payment on the chosen plan.
+watch(
+    () => [form.savings_plan_id, form.type],
+    () => {
+        if (isDeposit.value && selectedPlan.value?.daily_amount) form.amount = selectedPlan.value.daily_amount;
+        else if (!isDeposit.value) form.amount = '';
+    },
+    { immediate: true },
+);
 
 function submit() {
     form.transform((data) => ({ ...data, description: data.description || (isDeposit.value ? 'Daily Contribution' : 'Withdrawal') }))
@@ -68,18 +107,30 @@ function submit() {
                 <p v-if="form.errors.customer_id" class="field-error">Please choose a customer.</p>
             </div>
 
+            <div v-if="selectedCustomer">
+                <span class="label">Savings plan</span>
+                <p v-if="loadingPlans" class="text-sm text-slate-500">Loading plans…</p>
+                <PlanPicker v-else-if="plans.length" v-model="form.savings_plan_id" :plans="plans" :date="form.date" />
+                <p v-else class="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
+                    {{ selectedCustomer.full_name }} has no open plan.
+                    <Link :href="route('plans.create', selectedCustomer.id)" class="font-semibold underline">Open a plan</Link> to record entries.
+                </p>
+                <p v-if="form.errors.savings_plan_id" class="field-error">{{ form.errors.savings_plan_id }}</p>
+            </div>
+
             <EntryFields
                 :form="form"
                 :collectors="collectors"
                 :payment-methods="paymentMethods"
                 :today="today"
-                :balance="selectedCustomer ? selectedCustomer.balance : null"
+                :plan="selectedPlan"
+                :balance="selectedPlan ? selectedPlan.balance : null"
             />
 
             <button
                 type="submit"
                 :class="['w-full py-3 text-base', isDeposit ? 'btn-primary' : 'btn-danger']"
-                :disabled="form.processing || !form.customer_id || !form.amount || !isOnline"
+                :disabled="form.processing || !form.savings_plan_id || !form.amount || !isOnline"
             >
                 {{ form.processing ? 'Saving…' : isDeposit ? 'Save Deposit' : 'Save Withdrawal' }}
             </button>

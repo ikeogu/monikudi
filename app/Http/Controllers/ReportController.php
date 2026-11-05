@@ -21,12 +21,9 @@ class ReportController extends Controller
         $transactions = Transaction::query()
             ->visibleTo($request->user())
             ->betweenDates($from->toDateString(), $to->toDateString())
-            ->with(['customer:id,reg_no,first_name,last_name', 'collector:id,name'])
-            ->orderBy('date')
-            ->orderBy('created_at')
+            ->with(['customer:id,reg_no,first_name,last_name', 'plan:id,name', 'collector:id,name'])
+            ->inLedgerOrder()
             ->get();
-
-        [$deposits, $withdrawals] = $transactions->partition(fn ($transaction) => $transaction->isDeposit());
 
         $perDay = $transactions->groupBy(fn ($t) => substr($t->date, 0, 10));
         $byDay = [];
@@ -43,8 +40,9 @@ class ReportController extends Controller
                 'next' => $to->lt(today()) ? $this->shift($period, $from, 1)->toDateString() : null,
             ],
             'summary' => $this->totals($transactions) + [
-                'depositCount' => $deposits->count(),
-                'withdrawalCount' => $withdrawals->count(),
+                'depositCount' => $transactions->where('type', Transaction::TYPE_DEPOSIT)->count(),
+                'withdrawalCount' => $transactions->where('type', Transaction::TYPE_WITHDRAWAL)->count(),
+                'commissionCount' => $transactions->where('type', Transaction::TYPE_COMMISSION)->count(),
                 'customersServed' => $transactions->pluck('customer_id')->unique()->count(),
                 'newCustomers' => Customer::whereBetween('created_at', [$from->startOfDay(), $to->endOfDay()])->count(),
             ],
@@ -69,9 +67,8 @@ class ReportController extends Controller
         $query = Transaction::query()
             ->visibleTo($request->user())
             ->betweenDates($from->toDateString(), $to->toDateString())
-            ->with(['customer', 'collector:id,name'])
-            ->orderBy('date')
-            ->orderBy('created_at');
+            ->with(['customer', 'plan:id,name', 'collector:id,name'])
+            ->inLedgerOrder();
 
         $filename = "{$period}-report-{$from->toDateString()}".($period === 'daily' ? '' : "-to-{$to->toDateString()}");
 
@@ -133,6 +130,8 @@ class ReportController extends Controller
         return [
             'deposits' => $deposits,
             'withdrawals' => $withdrawals,
+            'commission' => (float) $entries->where('type', Transaction::TYPE_COMMISSION)->sum('amount'),
+            // Cash taken in minus cash paid out; commission stays within what was taken in.
             'net' => $deposits - $withdrawals,
             'count' => $entries->count(),
         ];

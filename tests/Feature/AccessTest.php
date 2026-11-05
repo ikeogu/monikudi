@@ -28,7 +28,7 @@ test('collectors cannot open admin areas', function (string $method, string $url
 ]);
 
 test('collectors cannot edit or delete entries or customers', function () {
-    $transaction = app(Ledger::class)->record($this->customer, [
+    $transaction = app(Ledger::class)->record($this->customer->plans()->first(), [
         'type' => Transaction::TYPE_DEPOSIT, 'amount' => 100, 'date' => today()->toDateString(),
         'payment_method' => 'cash', 'collected_by' => $this->collector->id,
     ], $this->collector);
@@ -42,6 +42,7 @@ test('collectors cannot edit or delete entries or customers', function () {
 test('collectors can only record money they collected themselves', function () {
     $this->actingAs($this->collector)->post(route('transactions.store'), [
         'customer_id' => $this->customer->id,
+        'savings_plan_id' => $this->customer->plans()->value('id'),
         'type' => Transaction::TYPE_DEPOSIT,
         'amount' => 500,
         'date' => today()->toDateString(),
@@ -55,7 +56,7 @@ test('collectors can only record money they collected themselves', function () {
 test('collectors only see their own collections in the transaction list', function () {
     $ledger = app(Ledger::class);
     foreach ([$this->collector, $this->otherCollector] as $collector) {
-        $ledger->record($this->customer, [
+        $ledger->record($this->customer->plans()->first(), [
             'type' => Transaction::TYPE_DEPOSIT, 'amount' => 100, 'date' => today()->toDateString(),
             'payment_method' => 'cash', 'collected_by' => $collector->id,
         ], $collector);

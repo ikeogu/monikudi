@@ -6,13 +6,15 @@ import Avatar from '@/Components/Avatar.vue';
 import Dropdown from '@/Components/Dropdown.vue';
 import EmptyState from '@/Components/EmptyState.vue';
 import Icon from '@/Components/Icon.vue';
+import PlanCard from '@/Components/PlanCard.vue';
 import ThermalSlip from '@/Components/ThermalSlip.vue';
-import { formatDate, formatShortDate, formatTime, isDeposit, naira, nairaTight, signedNaira, typeLabel } from '@/utils/format';
+import { entryTone, formatDate, formatShortDate, formatTime, isCommission, isDeposit, naira, nairaTight, signedNaira, typeLabel } from '@/utils/format';
 import { paper, setPaper, SLIP_PAGE_CSS, usePageStyle } from '@/utils/print';
 import { statementText, whatsappUrl } from '@/utils/share';
 
 const props = defineProps({
     customer: Object,
+    plans: Array,
     summary: Object,
     transactions: Array,
     filters: Object,
@@ -24,6 +26,9 @@ const business = computed(() => page.props.business);
 
 const range = reactive({ from: props.filters.from || '', to: props.filters.to || '' });
 const filtered = computed(() => Boolean(props.filters.from || props.filters.to));
+const selectedPlan = computed(() => props.plans.find((plan) => plan.id === props.filters.plan) ?? null);
+// With several plans and no plan chosen, each entry says which plan it's on.
+const showPlanColumn = computed(() => props.plans.length > 1 && !selectedPlan.value);
 // Older versions of the app could leave the stored balance out of step with the entries.
 const outOfSync = computed(() => Math.abs(props.summary.historyBalance - props.summary.balance) >= 0.01);
 
@@ -31,12 +36,23 @@ const shareUrl = computed(() =>
     whatsappUrl(props.customer.phone, statementText(props.customer, props.summary, props.transactions, business.value)),
 );
 
+function visit(params) {
+    const query = { plan: props.filters.plan, from: range.from, to: range.to, ...params };
+    router.get(
+        route('customers.show', props.customer.id),
+        Object.fromEntries(Object.entries(query).filter(([, value]) => value)),
+        { preserveScroll: true, preserveState: true },
+    );
+}
+
 function applyRange() {
-    router.get(route('customers.show', props.customer.id), { from: range.from || undefined, to: range.to || undefined }, { preserveScroll: true });
+    visit({});
 }
 
 function clearRange() {
-    router.get(route('customers.show', props.customer.id));
+    range.from = '';
+    range.to = '';
+    visit({});
 }
 
 const excelUrl = computed(() =>
@@ -49,10 +65,10 @@ const slipEntries = computed(() => [...props.transactions].reverse());
 const slipTotals = computed(() =>
     props.transactions.reduce(
         (totals, t) => {
-            totals[isDeposit(t) ? 'deposits' : 'withdrawals'] += Number(t.amount);
+            totals[isDeposit(t) ? 'deposits' : isCommission(t) ? 'commission' : 'withdrawals'] += Number(t.amount);
             return totals;
         },
-        { deposits: 0, withdrawals: 0 },
+        { deposits: 0, withdrawals: 0, commission: 0 },
     ),
 );
 const slipBalance = computed(() => {
@@ -103,6 +119,7 @@ function recalculate() {
                     <div class="flex justify-between gap-2"><dt>Customer ID</dt><dd class="text-right">{{ customer.reg_no }}</dd></div>
                     <div class="flex justify-between gap-2"><dt>Name</dt><dd class="text-right">{{ customer.full_name }}</dd></div>
                     <div v-if="customer.phone" class="flex justify-between gap-2"><dt>Phone</dt><dd class="text-right">{{ customer.phone }}</dd></div>
+                    <div v-if="selectedPlan" class="flex justify-between gap-2"><dt>Plan</dt><dd class="text-right">{{ selectedPlan.name }}</dd></div>
                 </dl>
 
                 <table class="w-full tabular-nums">
@@ -120,7 +137,7 @@ function recalculate() {
                             <td class="whitespace-nowrap py-0.5 text-right">{{ nairaTight(summary.opening) }}</td>
                         </tr>
                         <tr v-for="t in slipEntries" :key="t.id">
-                            <td class="whitespace-nowrap py-0.5 pr-1">{{ slipDate(t.date) }}</td>
+                            <td class="whitespace-nowrap py-0.5 pr-1">{{ isCommission(t) ? 'Commission' : slipDate(t.date) }}</td>
                             <td class="whitespace-nowrap py-0.5 text-right">{{ isDeposit(t) ? '+' : '-' }}{{ nairaTight(t.amount) }}</td>
                             <td class="whitespace-nowrap py-0.5 pl-1 text-right">{{ nairaTight(t.running_balance) }}</td>
                         </tr>
@@ -133,6 +150,7 @@ function recalculate() {
                 <dl class="mt-1 space-y-0.5 border-t border-dashed border-black py-2">
                     <div class="flex justify-between gap-2"><dt>Deposits</dt><dd>{{ naira(slipTotals.deposits) }}</dd></div>
                     <div class="flex justify-between gap-2"><dt>Withdrawals</dt><dd>{{ naira(slipTotals.withdrawals) }}</dd></div>
+                    <div v-if="slipTotals.commission" class="flex justify-between gap-2"><dt>Commission</dt><dd>{{ naira(slipTotals.commission) }}</dd></div>
                     <div class="flex justify-between gap-2 font-bold"><dt>{{ filtered ? 'Closing balance' : 'Balance' }}</dt><dd>{{ naira(slipBalance) }}</dd></div>
                     <p class="pt-1 text-center text-[0.85em]">Printed {{ formatDate(new Date()) }}, {{ formatTime(new Date()) }}</p>
                 </dl>
@@ -148,7 +166,8 @@ function recalculate() {
             </div>
 
             <div class="card p-4 lg:p-6 print:shadow-none print:ring-0">
-                <div class="flex items-start gap-4">
+                <!-- On phones the action icons wrap onto their own row so the name keeps its width. -->
+                <div class="flex flex-wrap items-start gap-x-4 gap-y-3">
                     <Avatar :name="customer.full_name" size="h-14 w-14 text-lg lg:h-16 lg:w-16" />
                     <div class="min-w-0 flex-1">
                         <p class="text-sm font-semibold text-brand-700">{{ customer.reg_no }}</p>
@@ -156,7 +175,7 @@ function recalculate() {
                         <p class="text-sm text-slate-500">{{ customer.phone || 'No phone number' }}</p>
                         <p v-if="customer.address" class="text-sm text-slate-500">{{ customer.address }}</p>
                     </div>
-                    <div class="flex gap-1 print:hidden">
+                    <div class="-ml-2 flex w-full gap-1 sm:ml-0 sm:w-auto print:hidden">
                         <a :href="shareUrl" target="_blank" rel="noopener" class="rounded-lg p-2 text-[#1ebe5b] hover:bg-emerald-50" title="Share on WhatsApp">
                             <Icon name="whatsapp" class="h-5 w-5" />
                         </a>
@@ -195,7 +214,7 @@ function recalculate() {
                     </div>
                 </div>
 
-                <div class="mt-5 grid grid-cols-3 gap-2 lg:gap-4">
+                <div class="mt-5 grid grid-cols-2 gap-2 lg:grid-cols-4 lg:gap-4">
                     <div class="rounded-xl bg-slate-50 p-3 lg:p-4">
                         <p class="text-xs text-slate-500">Total Deposits</p>
                         <p class="mt-1 text-sm font-bold text-slate-900 lg:text-xl">{{ naira(summary.deposits) }}</p>
@@ -204,8 +223,12 @@ function recalculate() {
                         <p class="text-xs text-slate-500">Total Withdrawals</p>
                         <p class="mt-1 text-sm font-bold text-slate-900 lg:text-xl">{{ naira(summary.withdrawals) }}</p>
                     </div>
+                    <div class="rounded-xl bg-amber-50 p-3 lg:p-4">
+                        <p class="text-xs text-amber-700">Commission</p>
+                        <p class="mt-1 text-sm font-bold text-amber-700 lg:text-xl">{{ naira(summary.commission) }}</p>
+                    </div>
                     <div class="rounded-xl bg-emerald-50 p-3 lg:p-4">
-                        <p class="text-xs text-emerald-700">Current Balance</p>
+                        <p class="text-xs text-emerald-700">{{ selectedPlan ? `${selectedPlan.name} Balance` : 'Current Balance' }}</p>
                         <p class="mt-1 text-sm font-bold text-emerald-700 lg:text-xl">{{ naira(summary.balance) }}</p>
                     </div>
                 </div>
@@ -222,9 +245,37 @@ function recalculate() {
                 </div>
             </div>
 
+            <section class="mt-5 print:hidden">
+                <div class="mb-3 flex items-center justify-between">
+                    <h2 class="font-semibold text-slate-900">Savings plans</h2>
+                    <Link :href="route('plans.create', customer.id)" class="btn-secondary px-3 py-1.5 text-sm">
+                        <Icon name="plus" class="h-4 w-4" /> New plan
+                    </Link>
+                </div>
+                <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    <PlanCard v-for="plan in plans" :key="plan.id" :plan="plan" :customer-id="customer.id" :is-admin="isAdmin" />
+                </div>
+            </section>
+
             <div class="card mt-5 overflow-hidden print:mt-4 print:shadow-none print:ring-0">
                 <div class="flex flex-col gap-3 border-b border-slate-100 px-4 py-4 lg:flex-row lg:items-end lg:px-6">
-                    <h2 class="flex-1 font-semibold text-slate-900">Transaction History</h2>
+                    <div class="flex-1">
+                        <h2 class="font-semibold text-slate-900">Transaction History{{ selectedPlan ? `: ${selectedPlan.name}` : '' }}</h2>
+                        <div v-if="plans.length > 1" class="mt-2 flex flex-wrap gap-1 print:hidden">
+                            <button
+                                v-for="option in [{ id: '', name: 'All plans' }, ...plans]"
+                                :key="option.id"
+                                type="button"
+                                :class="[
+                                    'rounded-full px-3 py-1 text-xs font-medium',
+                                    (filters.plan || '') === option.id ? 'bg-brand-800 text-white' : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50',
+                                ]"
+                                @click="visit({ plan: option.id })"
+                            >
+                                {{ option.name }}
+                            </button>
+                        </div>
+                    </div>
                     <form class="flex flex-wrap items-end gap-2 print:hidden" @submit.prevent="applyRange">
                         <label class="text-xs text-slate-500">
                             From
@@ -254,11 +305,13 @@ function recalculate() {
                         >
                             <div>
                                 <p class="text-sm font-medium text-slate-800">{{ formatShortDate(t.date) }}</p>
-                                <p :class="['text-sm', isDeposit(t) ? 'text-emerald-600' : 'text-red-600']">{{ typeLabel(t.type) }}</p>
-                                <p v-if="t.collector" class="text-xs text-slate-400">{{ t.collector.name }}</p>
+                                <p :class="['text-sm', entryTone(t)]">{{ typeLabel(t.type) }}</p>
+                                <p v-if="(showPlanColumn && t.plan) || t.collector" class="text-xs text-slate-400">
+                                    {{ [showPlanColumn && t.plan?.name, t.collector?.name].filter(Boolean).join(' · ') }}
+                                </p>
                             </div>
                             <div class="text-right">
-                                <p :class="['text-sm font-semibold', isDeposit(t) ? 'text-emerald-600' : 'text-red-600']">{{ signedNaira(t) }}</p>
+                                <p :class="['text-sm font-semibold', entryTone(t)]">{{ signedNaira(t) }}</p>
                                 <p class="text-xs text-slate-500">Balance: {{ naira(t.running_balance) }}</p>
                             </div>
                         </Link>
@@ -269,6 +322,7 @@ function recalculate() {
                             <tr>
                                 <th class="px-6 py-3">Date</th>
                                 <th class="px-4 py-3">Receipt</th>
+                                <th v-if="showPlanColumn" class="px-4 py-3">Plan</th>
                                 <th class="px-4 py-3">Type</th>
                                 <th class="px-4 py-3">Collected by</th>
                                 <th class="px-4 py-3">Remarks</th>
@@ -285,10 +339,11 @@ function recalculate() {
                                 <td class="px-4 py-3">
                                     <Link :href="route('transactions.show', t.id)" class="font-medium text-brand-700 hover:underline">{{ t.receipt_no }}</Link>
                                 </td>
-                                <td :class="['px-4 py-3 font-medium', isDeposit(t) ? 'text-emerald-600' : 'text-red-600']">{{ typeLabel(t.type) }}</td>
-                                <td class="px-4 py-3 text-slate-600">{{ t.collector?.name || '—' }}</td>
+                                <td v-if="showPlanColumn" class="px-4 py-3 text-slate-600">{{ t.plan?.name }}</td>
+                                <td :class="['px-4 py-3 font-medium', entryTone(t)]">{{ typeLabel(t.type) }}</td>
+                                <td class="px-4 py-3 text-slate-600">{{ isCommission(t) ? '—' : t.collector?.name || '—' }}</td>
                                 <td class="px-4 py-3 text-slate-500">{{ t.description || '—' }}</td>
-                                <td :class="['whitespace-nowrap px-4 py-3 text-right font-semibold', isDeposit(t) ? 'text-emerald-600' : 'text-red-600']">
+                                <td :class="['whitespace-nowrap px-4 py-3 text-right font-semibold', entryTone(t)]">
                                     {{ signedNaira(t) }}
                                 </td>
                                 <td class="whitespace-nowrap px-6 py-3 text-right font-medium text-slate-900">{{ naira(t.running_balance) }}</td>

@@ -1,4 +1,4 @@
-import { entryDateTime, formatDate, naira, typeLabel } from './format';
+import { entryDateTime, formatDate, naira, pageLabel, typeLabel } from './format';
 
 /**
  * Nigerian numbers are usually saved as 0803...; WhatsApp needs 234803...
@@ -19,17 +19,23 @@ export function whatsappUrl(phone, text) {
 
 export function receiptText(transaction, business) {
     const customer = transaction.customer;
+    const commissions = transaction.page_commissions || [];
     const lines = [
         `*${business.business_name.toUpperCase()}*`,
         `Receipt: ${transaction.receipt_no}`,
         '',
         `Date: ${entryDateTime(transaction)}`,
         `Customer: ${customer.reg_no} - ${customer.full_name}`,
+        ...(transaction.plan ? [`Plan: ${transaction.plan.name}`] : []),
+        ...(transaction.page_number ? [pageLabel(transaction)] : []),
         `Type: ${typeLabel(transaction.type)}`,
         `Amount: *${naira(transaction.amount)}*`,
+        ...commissions.map((commission) => `Commission (new page): -${naira(commission.amount)}`),
     ];
-    if (transaction.balance_after !== null && transaction.balance_after !== undefined) {
-        lines.push(`Balance: ${naira(transaction.balance_after)}`);
+    // After any commission the payment started, which is what the customer actually has.
+    const balance = commissions.length ? commissions[commissions.length - 1].balance_after : transaction.balance_after;
+    if (balance !== null && balance !== undefined) {
+        lines.push(`Balance: ${naira(balance)}`);
     }
     if (transaction.collector) {
         lines.push(`Collected by: ${transaction.collector.name}`);
@@ -51,6 +57,7 @@ export function statementText(customer, summary, transactions, business) {
         `${customer.reg_no} - ${customer.full_name}`,
         `Total deposits: ${naira(summary.deposits)}`,
         `Total withdrawals: ${naira(summary.withdrawals)}`,
+        ...(summary.commission ? [`Commission: ${naira(summary.commission)}`] : []),
         `Current balance: *${naira(summary.balance)}*`,
         ...(recent.length ? ['', 'Recent entries:', ...recent] : []),
         '',

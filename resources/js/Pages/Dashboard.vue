@@ -15,6 +15,7 @@ const props = defineProps({
     chart: Object,
     recentTransactions: Array,
     topCustomers: Array,
+    plansNeedingAmount: Number,
 });
 
 const isAdmin = computed(() => usePage().props.auth.isAdmin);
@@ -29,9 +30,10 @@ const cards = computed(() => {
         isAdmin.value && { label: 'Total Savings Balance', value: naira(s.savingsBalance), hint: 'Held for all customers', icon: 'banknotes', tone: 'green' },
         { label: `${scope}Today's Deposits`, value: naira(s.todayDeposits), hint: `${s.todayDepositsCount} deposit${s.todayDepositsCount === 1 ? '' : 's'} today`, icon: 'arrow-down-circle', tone: 'green' },
         { label: `${scope}Today's Withdrawals`, value: naira(s.todayWithdrawals), hint: `${s.todayWithdrawalsCount} withdrawal${s.todayWithdrawalsCount === 1 ? '' : 's'} today`, icon: 'arrow-up-circle', tone: 'red' },
+        isAdmin.value && { label: "Today's Commission", value: naira(s.todayCommission), hint: 'First payments on new pages', icon: 'banknotes', tone: 'amber' },
+        isAdmin.value && { label: 'Commission This Month', value: naira(s.monthCommission), hint: 'Since the 1st', icon: 'calendar', tone: 'amber' },
         { label: `${scope}Total Deposits`, value: naira(s.totalDeposits), hint: 'All time', icon: 'wallet', tone: 'brand' },
-        { label: `${scope}Total Withdrawals`, value: naira(s.totalWithdrawals), hint: 'All time', icon: 'clock', tone: 'amber' },
-        isAdmin.value && { label: 'Active Staff', value: s.activeStaff, hint: 'Admins and collectors', icon: 'user-group', tone: 'slate' },
+        { label: `${scope}Total Withdrawals`, value: naira(s.totalWithdrawals), hint: 'All time', icon: 'clock', tone: 'slate' },
     ].filter(Boolean);
 });
 </script>
@@ -47,6 +49,15 @@ const cards = computed(() => {
                 <Icon name="plus" class="h-4 w-4" /> New Deposit
             </Link>
         </template>
+
+        <div v-if="plansNeedingAmount" class="mb-5 flex flex-col gap-3 rounded-xl bg-amber-50 p-4 text-sm text-amber-900 sm:flex-row sm:items-center">
+            <Icon name="exclamation-triangle" class="h-5 w-5 shrink-0" />
+            <p class="flex-1">
+                {{ plansNeedingAmount }} customer plan{{ plansNeedingAmount === 1 ? '' : 's' }} moved over from before plans existed
+                {{ plansNeedingAmount === 1 ? 'needs' : 'need' }} a daily amount. Until it's set, no commission is taken on {{ plansNeedingAmount === 1 ? 'it' : 'them' }}.
+            </p>
+            <Link :href="route('customers.index', { setup: 1 })" class="btn-secondary py-1.5">Review customers</Link>
+        </div>
 
         <div class="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-5">
             <StatCard v-for="card in cards" :key="card.label" v-bind="card" />

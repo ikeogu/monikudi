@@ -19,7 +19,7 @@ let timer = null;
 watch(search, (value) => {
     clearTimeout(timer);
     timer = setTimeout(() => {
-        router.get(route('customers.index'), value ? { search: value } : {}, { preserveState: true, replace: true });
+        router.get(route('customers.index'), { search: value || undefined, setup: props.filters.setup || undefined }, { preserveState: true, replace: true });
     }, 300);
 });
 </script>
@@ -35,6 +35,11 @@ watch(search, (value) => {
                 <Icon name="plus" class="h-5 w-5" />
                 <span class="hidden sm:inline">Register Customer</span>
             </Link>
+        </div>
+
+        <div v-if="filters.setup" class="mb-4 flex items-center gap-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <p class="flex-1">Showing customers with a plan that needs a daily amount. Open a customer and edit the plan to set it.</p>
+            <Link :href="route('customers.index')" class="font-semibold underline">Show all</Link>
         </div>
 
         <div class="card overflow-hidden">

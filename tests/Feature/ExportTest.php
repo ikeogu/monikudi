@@ -35,7 +35,7 @@ beforeEach(function () {
     $bayo = Customer::factory()->create();
     $ledger = app(Ledger::class);
 
-    $post = fn ($customer, $by, $type, $amount, $date) => $ledger->record($customer, [
+    $post = fn ($customer, $by, $type, $amount, $date) => $ledger->record($customer->plans()->first(), [
         'type' => $type, 'amount' => $amount, 'date' => $date, 'payment_method' => 'cash', 'collected_by' => $by->id,
     ], $by);
 
@@ -52,12 +52,14 @@ test('daily collections export a totals sheet and an entries sheet', function ()
     $sheets = workbook($response);
 
     expect(array_keys($sheets))->toBe(['Daily totals', 'Entries'])
-        ->and($sheets['Daily totals'][0])->toBe(['Date', 'Day', 'Entries', 'Deposits', 'Withdrawals', 'Net', 'Running total'])
+        ->and($sheets['Daily totals'][0])->toBe(['Date', 'Day', 'Entries', 'Deposits', 'Withdrawals', 'Commission', 'Net', 'Running total'])
         ->and($sheets['Daily totals'])->toHaveCount(32) // heading, 1–30 Oct, total
-        ->and($sheets['Daily totals'][30])->toEqual(['2026-10-30', 'Friday', 2, 500, 1500, -1000, 4000])
-        ->and(array_slice($sheets['Daily totals'][31], 0, 6))->toEqual(['Total', '', 4, 5500, 1500, 4000])
+        ->and($sheets['Daily totals'][30])->toEqual(['2026-10-30', 'Friday', 2, 500, 1500, 0, -1000, 4000])
+        ->and(array_slice($sheets['Daily totals'][31], 0, 7))->toEqual(['Total', '', 4, 5500, 1500, 0, 4000])
         ->and($sheets['Entries'])->toHaveCount(5)
-        ->and($sheets['Entries'][1])->toMatchArray([0 => '2026-10-02', 3 => 'AJ0000007', 4 => 'Ada Obi', 5 => '08012345678', 6 => 'Deposit', 7 => 4000]);
+        ->and($sheets['Entries'][1])->toMatchArray([
+            0 => '2026-10-02', 3 => 'AJ0000007', 4 => 'Ada Obi', 5 => '08012345678', 6 => 'Daily savings', 7 => 'Deposit', 8 => 4000,
+        ]);
 });
 
 test('the collections export follows the filters and names the customer', function () {
@@ -83,7 +85,7 @@ test('collectors only export their own collections', function () {
     $response = $this->actingAs($this->collector)->get(route('transactions.export'));
 
     expect(workbook($response)['Transactions'])->toHaveCount(3)
-        ->and(array_unique(array_column(array_slice(workbook($response)['Transactions'], 1), 9)))->toBe(['Emeka']);
+        ->and(array_unique(array_column(array_slice(workbook($response)['Transactions'], 1), 10)))->toBe(['Emeka']);
 });
 
 test('reports export to Excel as well as CSV', function () {
@@ -101,7 +103,7 @@ test('a customer statement exports with its opening and running balances', funct
     $rows = workbook($response)['AJ0000007'];
 
     expect($rows)->toHaveCount(4)
-        ->and($rows[1])->toEqual(['2026-10-29', '', '', 'Opening balance', '', '', '', '', '', 4000])
-        ->and([$rows[2][3], $rows[2][7], $rows[2][9]])->toEqual(['Deposit', 1000, 5000])
-        ->and([$rows[3][3], $rows[3][8], $rows[3][9]])->toEqual(['Withdrawal', 1500, 3500]);
+        ->and($rows[1])->toEqual(['2026-10-29', '', '', '', 'Opening balance', '', '', '', '', '', '', 4000])
+        ->and([$rows[2][3], $rows[2][4], $rows[2][8], $rows[2][11]])->toEqual(['Daily savings', 'Deposit', 1000, 5000])
+        ->and([$rows[3][4], $rows[3][9], $rows[3][11]])->toEqual(['Withdrawal', 1500, 3500]);
 });

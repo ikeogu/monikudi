@@ -1,22 +1,65 @@
 <script setup>
 import { computed } from 'vue';
 import { usePage } from '@inertiajs/vue3';
-import { naira } from '@/utils/format';
+import { monthLabel, naira } from '@/utils/format';
 
 const props = defineProps({
     form: { type: Object, required: true },
     collectors: { type: Array, required: true },
     paymentMethods: { type: Object, required: true },
     today: { type: String, required: true },
-    // Available balance for withdrawals, when a customer is selected.
+    // The plan the entry goes on, when known: its daily amount, balance and current page.
+    plan: { type: Object, default: null },
+    // Available balance for withdrawals.
     balance: { type: Number, default: null },
 });
 
-const quickAmounts = [200, 500, 1000, 2000, 5000];
 const isAdmin = computed(() => usePage().props.auth.isAdmin);
-const overdrawn = computed(
-    () => props.form.type === 'debit' && props.balance !== null && Number(props.form.amount) > props.balance,
-);
+const isDeposit = computed(() => props.form.type === 'credit');
+const daily = computed(() => props.plan?.daily_amount ?? null);
+const amount = computed(() => Number(props.form.amount) || 0);
+const overdrawn = computed(() => !isDeposit.value && props.balance !== null && amount.value > props.balance);
+const collectsAll = computed(() => !isDeposit.value && props.balance > 0 && amount.value === props.balance);
+
+const month = computed(() => (props.form.date || props.today).slice(0, 7));
+const daysInMonth = computed(() => {
+    const [year, monthNumber] = month.value.split('-').map(Number);
+    return new Date(year, monthNumber, 0).getDate();
+});
+// The day reached on this month's page so far, or null when the next payment starts a new page.
+const dayOnPage = computed(() => {
+    const page = props.plan?.current_page;
+    return page && page.month === month.value && page.day < page.days ? page.day : null;
+});
+
+const quickAmounts = computed(() => {
+    if (!isDeposit.value) return [];
+    if (!daily.value) return [200, 500, 1000, 2000, 5000].map((value) => ({ value, label: naira(value).replace('.00', '') }));
+
+    const rest = daysInMonth.value - (dayOnPage.value ?? 0);
+    return [
+        ...[1, 5, 10].map((days) => ({ value: days * daily.value, label: `${days} day${days === 1 ? '' : 's'}` })),
+        { value: rest * daily.value, label: `Rest of month (${rest})` },
+    ];
+});
+
+// What this payment does to the plan's page, worked out the same way the ledger does.
+const pageNote = computed(() => {
+    if (!isDeposit.value || !daily.value || amount.value < daily.value) return null;
+
+    const days = Math.floor(amount.value / daily.value);
+    const name = monthLabel(month.value);
+    if (dayOnPage.value === null) {
+        return {
+            commission: true,
+            text: `First payment of ${name}'s page: ${naira(daily.value)} goes to commission. Counts as ${days} day${days === 1 ? '' : 's'}.`,
+        };
+    }
+    if (dayOnPage.value + days > daysInMonth.value) {
+        return { commission: true, text: `Fills ${name}'s page and starts another, so ${naira(daily.value)} goes to commission.` };
+    }
+    return { commission: false, text: `Counts as ${days} day${days === 1 ? '' : 's'} · Day ${dayOnPage.value + days} of ${daysInMonth.value}.` };
+});
 </script>
 
 <template>
@@ -28,7 +71,7 @@ const overdrawn = computed(
                 v-model="form.amount"
                 type="number"
                 inputmode="decimal"
-                min="1"
+                :min="isDeposit && daily ? daily : 1"
                 step="0.01"
                 class="input text-lg font-semibold"
                 placeholder="0.00"
@@ -36,20 +79,47 @@ const overdrawn = computed(
             />
             <div class="mt-2 flex flex-wrap gap-2">
                 <button
-                    v-for="amount in quickAmounts"
-                    :key="amount"
+                    v-for="quick in quickAmounts"
+                    :key="quick.label"
                     type="button"
                     :class="[
                         'rounded-full px-3 py-1 text-xs font-medium ring-1',
-                        Number(form.amount) === amount ? 'bg-brand-800 text-white ring-brand-800' : 'bg-white text-slate-600 ring-slate-300 hover:bg-slate-50',
+                        amount === quick.value ? 'bg-brand-800 text-white ring-brand-800' : 'bg-white text-slate-600 ring-slate-300 hover:bg-slate-50',
                     ]"
-                    @click="form.amount = amount"
+                    @click="form.amount = quick.value"
                 >
-                    {{ naira(amount).replace('.00', '') }}
+                    {{ quick.label }}
+                </button>
+                <button
+                    v-if="!isDeposit && balance > 0"
+                    type="button"
+                    :class="[
+                        'rounded-full px-3 py-1 text-xs font-medium ring-1',
+                        collectsAll ? 'bg-brand-800 text-white ring-brand-800' : 'bg-white text-slate-600 ring-slate-300 hover:bg-slate-50',
+                    ]"
+                    @click="form.amount = balance"
+                >
+                    Collect everything ({{ naira(balance) }})
                 </button>
             </div>
+
+            <p v-if="isDeposit && daily && amount > 0 && amount < daily" class="field-error">The smallest payment on this plan is {{ naira(daily) }}.</p>
+            <p
+                v-else-if="pageNote"
+                :class="['mt-2 rounded-lg px-3 py-2 text-sm', pageNote.commission ? 'bg-amber-50 text-amber-900' : 'bg-emerald-50 text-emerald-800']"
+            >
+                {{ pageNote.text }}
+            </p>
             <p v-if="overdrawn" class="field-error">This is more than the available balance of {{ naira(balance) }}.</p>
             <p v-if="form.errors.amount" class="field-error">{{ form.errors.amount }}</p>
+
+            <label v-if="collectsAll && 'close_plan' in form" class="mt-3 flex items-start gap-3 rounded-xl bg-slate-50 p-3">
+                <input v-model="form.close_plan" type="checkbox" class="mt-0.5 rounded border-slate-300 text-brand-700 focus:ring-brand-500" />
+                <span class="text-sm">
+                    <span class="block font-semibold text-slate-900">Close {{ plan?.name ?? 'this plan' }} after paying out</span>
+                    <span class="block text-xs text-slate-500">Collecting everything ends this month's page either way; saving again starts a new page with commission.</span>
+                </span>
+            </label>
         </div>
 
         <div class="grid gap-5 sm:grid-cols-2">

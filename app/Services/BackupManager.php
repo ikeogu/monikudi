@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\SavingsPlan;
 use App\Models\Setting;
 use Carbon\Carbon;
 use Illuminate\Contracts\Filesystem\Filesystem;
@@ -18,7 +19,7 @@ use RuntimeException;
 class BackupManager
 {
     // Ordered so parents are restored before the rows that reference them.
-    public const TABLES = ['users', 'settings', 'customers', 'transactions'];
+    public const TABLES = ['users', 'settings', 'customers', 'savings_plans', 'transactions'];
 
     public function disk(): Filesystem
     {
@@ -118,6 +119,9 @@ class BackupManager
                 }
                 $counts[$table] = count($rows);
             }
+
+            // Backups from before savings plans existed have none; put each customer's balance in one.
+            SavingsPlan::adoptCustomersWithoutPlans();
         });
 
         Cache::forget('settings');

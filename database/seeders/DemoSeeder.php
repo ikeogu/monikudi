@@ -31,6 +31,13 @@ class DemoSeeder extends Seeder
 
         $customers->each(function (Customer $customer) use ($ledger, $collectors, $admin, $today) {
             $daily = fake()->randomElement([200, 500, 1000, 2000]);
+            $plan = $customer->plans()->first();
+            $plan->update(['daily_amount' => $daily]);
+
+            // Some customers also save toward a goal of their own.
+            if (fake()->boolean(25)) {
+                $customer->plans()->create(['name' => 'House rent', 'daily_amount' => $daily * 2, 'target_months' => 3, 'created_by' => $admin->id]);
+            }
 
             for ($day = 45; $day >= 0; $day--) {
                 if (fake()->boolean(25)) {
@@ -40,18 +47,20 @@ class DemoSeeder extends Seeder
                 $collector = $collectors->random();
                 Carbon::setTestNow($today->copy()->subDays($day)->setTime(rand(8, 17), rand(0, 59)));
 
-                $ledger->record($customer, [
+                // Now and then a customer pays several days at once.
+                $plan = $customer->plans()->get()->random();
+                $ledger->record($plan, [
                     'type' => Transaction::TYPE_DEPOSIT,
-                    'amount' => $daily,
+                    'amount' => $plan->daily_amount * (fake()->boolean(15) ? rand(2, 7) : 1),
                     'date' => today()->toDateString(),
                     'payment_method' => fake()->randomElement(['cash', 'cash', 'cash', 'transfer']),
                     'collected_by' => $collector->id,
                     'description' => 'Daily contribution',
                 ], $collector);
 
-                $withdrawal = min($daily * rand(2, 5), $customer->refresh()->balance);
+                $withdrawal = min($daily * rand(2, 5), $plan->refresh()->balance);
                 if ($day % 14 === 0 && $withdrawal >= 1 && fake()->boolean(40)) {
-                    $ledger->record($customer, [
+                    $ledger->record($plan, [
                         'type' => Transaction::TYPE_WITHDRAWAL,
                         'amount' => $withdrawal,
                         'date' => today()->toDateString(),

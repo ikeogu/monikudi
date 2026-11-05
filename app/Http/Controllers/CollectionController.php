@@ -56,9 +56,11 @@ class CollectionController extends Controller
             'summary' => [
                 'deposits' => $days->sum('deposits'),
                 'withdrawals' => $days->sum('withdrawals'),
+                'commission' => $days->sum('commission'),
                 'net' => $days->sum('net'),
                 'depositCount' => $days->sum('depositCount'),
                 'withdrawalCount' => $days->sum('withdrawalCount'),
+                'commissionCount' => $days->sum('commissionCount'),
                 'count' => $days->sum('count'),
                 'customers' => (clone $query)->distinct()->count('customer_id'),
                 'activeDays' => $activeDays,
@@ -66,9 +68,8 @@ class CollectionController extends Controller
             ],
             'entries' => $view === 'list'
                 ? (clone $query)
-                    ->with(['customer:id,reg_no,first_name,last_name,phone', 'collector:id,name'])
-                    ->orderByDesc('date')
-                    ->orderByDesc('created_at')
+                    ->with(['customer:id,reg_no,first_name,last_name,phone', 'plan:id,name', 'collector:id,name'])
+                    ->inLedgerOrder(descending: true)
                     ->paginate(50)
                     ->withQueryString()
                 : null,
@@ -90,12 +91,14 @@ class CollectionController extends Controller
         $days = collect($this->dailyTotals(clone $query, $from, $to));
         $totals = $days->map(fn ($day) => [
             $day['date'], CarbonImmutable::parse($day['date'])->format('l'), $day['count'],
-            $day['deposits'], $day['withdrawals'], $day['net'], $day['running'],
-        ])->push(['Total', null, $days->sum('count'), $days->sum('deposits'), $days->sum('withdrawals'), $days->sum('net'), null]);
+            $day['deposits'], $day['withdrawals'], $day['commission'], $day['net'], $day['running'],
+        ])->push([
+            'Total', null, $days->sum('count'),
+            $days->sum('deposits'), $days->sum('withdrawals'), $days->sum('commission'), $days->sum('net'), null,
+        ]);
 
-        $entries = $query->with(['customer', 'collector:id,name'])
-            ->orderBy('date')
-            ->orderBy('created_at')
+        $entries = $query->with(['customer', 'plan:id,name', 'collector:id,name'])
+            ->inLedgerOrder()
             ->lazy(500)
             ->map->toExportRow();
 
@@ -107,7 +110,7 @@ class CollectionController extends Controller
         $customer = isset($filters['customer']) ? Customer::withTrashed()->find($filters['customer'])?->reg_no : null;
 
         return Spreadsheet::make()
-            ->sheet('Daily totals', ['Date', 'Day', 'Entries', 'Deposits', 'Withdrawals', 'Net', 'Running total'], $totals)
+            ->sheet('Daily totals', ['Date', 'Day', 'Entries', 'Deposits', 'Withdrawals', 'Commission', 'Net', 'Running total'], $totals)
             ->sheet('Entries', Transaction::EXPORT_HEADINGS, $entries)
             ->download('collections-'.$range.($customer ? "-{$customer}" : '').'.xlsx');
     }
@@ -127,7 +130,7 @@ class CollectionController extends Controller
             'from' => 'nullable|required_if:period,range|date',
             'to' => 'nullable|required_if:period,range|date|after_or_equal:from',
             'customer' => 'nullable|string',
-            'type' => ['nullable', Rule::in([Transaction::TYPE_DEPOSIT, Transaction::TYPE_WITHDRAWAL])],
+            'type' => ['nullable', Rule::in(array_keys(Transaction::TYPE_LABELS))],
             'collector' => 'nullable|integer',
             'method' => ['nullable', Rule::in(array_keys(Transaction::PAYMENT_METHODS))],
         ]);
@@ -192,6 +195,8 @@ class CollectionController extends Controller
             $entries = $rows->get($day->toDateString(), collect());
             $deposits = $entries->where('type', Transaction::TYPE_DEPOSIT);
             $withdrawals = $entries->where('type', Transaction::TYPE_WITHDRAWAL);
+            $commissions = $entries->where('type', Transaction::TYPE_COMMISSION);
+            // Cash taken in minus cash paid out; commission stays within what was taken in.
             $net = (float) $deposits->sum('total') - (float) $withdrawals->sum('total');
             $running += $net;
 
@@ -199,10 +204,12 @@ class CollectionController extends Controller
                 'date' => $day->toDateString(),
                 'deposits' => (float) $deposits->sum('total'),
                 'withdrawals' => (float) $withdrawals->sum('total'),
+                'commission' => (float) $commissions->sum('total'),
                 'net' => $net,
                 'running' => $running,
                 'depositCount' => (int) $deposits->sum('entries'),
                 'withdrawalCount' => (int) $withdrawals->sum('entries'),
+                'commissionCount' => (int) $commissions->sum('entries'),
                 'count' => (int) $entries->sum('entries'),
             ];
         }

@@ -31,7 +31,7 @@ function destroy() {
     <AuthenticatedLayout title="Edit Entry" :subtitle="transaction.receipt_no" :back="route('transactions.show', transaction.id)">
         <form class="card max-w-2xl space-y-5 p-5 lg:p-8" @submit.prevent="form.put(route('transactions.update', transaction.id))">
             <div class="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
-                Changing the amount or type adjusts {{ transaction.customer.first_name }}'s balance by the difference.
+                Changing the amount, type or date recalculates {{ transaction.customer.first_name }}'s {{ transaction.plan?.name ?? 'plan' }}, including any commission for its pages.
             </div>
 
             <div>

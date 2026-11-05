@@ -2,6 +2,8 @@
 
 namespace Database\Factories;
 
+use App\Models\Customer;
+use App\Models\SavingsPlan;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -22,6 +24,22 @@ class CustomerFactory extends Factory
             'phone' => '080'.fake()->unique()->numerify('########'),
             'reg_no' => 'AJ'.str_pad(fake()->unique()->numberBetween(1, 99999), 7, '0', STR_PAD_LEFT),
         ];
+    }
+
+    /**
+     * Every customer has a plan, as when registered through the app. A balance given with
+     * withBalance() has no entries behind it, so it's carried in as the plan's opening balance.
+     */
+    public function configure(): static
+    {
+        return $this->afterCreating(function (Customer $customer) {
+            if (! $customer->plans()->exists()) {
+                SavingsPlan::factory()->for($customer)->create()->forceFill([
+                    'balance' => $customer->balance,
+                    'opening_balance' => (int) $customer->wallet_balance,
+                ])->save();
+            }
+        });
     }
 
     /**
