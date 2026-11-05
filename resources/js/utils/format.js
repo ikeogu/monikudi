@@ -3,6 +3,7 @@ const compactFormatter = new Intl.NumberFormat('en-NG', { notation: 'compact', m
 
 export const DEPOSIT = 'credit';
 export const WITHDRAWAL = 'debit';
+export const COMMISSION = 'commission';
 
 /** ₦1,234.50 */
 export function naira(value) {
@@ -20,7 +21,7 @@ export function nairaCompact(value) {
     return `₦${compactFormatter.format(Number(value || 0))}`;
 }
 
-/** "+₦1,000.00" for deposits, "-₦500.00" for withdrawals. */
+/** "+₦1,000.00" for deposits, "-₦500.00" for withdrawals and commission. */
 export function signedNaira(transaction) {
     return `${isDeposit(transaction) ? '+' : '-'}${naira(transaction.amount)}`;
 }
@@ -29,8 +30,31 @@ export function isDeposit(transaction) {
     return transaction.type === DEPOSIT;
 }
 
+export function isCommission(transaction) {
+    return transaction.type === COMMISSION;
+}
+
 export function typeLabel(type) {
-    return type === DEPOSIT ? 'Deposit' : 'Withdrawal';
+    return { [DEPOSIT]: 'Deposit', [WITHDRAWAL]: 'Withdrawal', [COMMISSION]: 'Commission' }[type] ?? type;
+}
+
+/** Text colour for an entry: green for money in, red for money paid out, amber for commission. */
+export function entryTone(transaction) {
+    if (isDeposit(transaction)) return 'text-emerald-600';
+    return isCommission(transaction) ? 'text-amber-600' : 'text-red-600';
+}
+
+/** "November 2026" from "2026-11". */
+export function monthLabel(month) {
+    return formatDate(`${month}-01`, { day: undefined, month: 'long' });
+}
+
+/** "November page · Day 17 of 30" for a deposit that counted toward a page. */
+export function pageLabel(transaction) {
+    if (!transaction.page_number) return '';
+    const date = toDate(transaction.date);
+    const days = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+    return `${formatDate(transaction.date, { day: undefined, year: undefined, month: 'long' })} page · Day ${transaction.page_day} of ${days}`;
 }
 
 /**

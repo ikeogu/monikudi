@@ -3,120 +3,320 @@
 namespace App\Services;
 
 use App\Models\Customer;
+use App\Models\SavingsPlan;
 use App\Models\Transaction;
 use App\Models\User;
+use Carbon\CarbonImmutable;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 /**
- * Every change to a customer's balance goes through here, inside a DB transaction
- * with the customer row locked, so the stored balance always matches the entries.
+ * Every change to a balance goes through here, inside a DB transaction with the customer
+ * and plan rows locked.
+ *
+ * Commission works in monthly pages. Each calendar month is a page holding as many days as
+ * the month has (31, 30, 29 or 28). The first payment on a page is the business's
+ * commission: one day's amount. A new page starts when a plan gets its first counted
+ * deposit, when a deposit falls in a new month, when the current page is full (the overflow
+ * opens the next page), or after a withdrawal emptied the plan. After every change, settle()
+ * replays the plan from its entries, so commissions, page numbers and balances can never
+ * drift from the history.
  */
 class Ledger
 {
-    public function record(Customer $customer, array $data, User $by): Transaction
+    /**
+     * Post a deposit or withdrawal on a plan. A withdrawal that empties the plan ends its
+     * page and, with $closePlan, closes the plan too.
+     */
+    public function record(SavingsPlan $plan, array $data, User $by, bool $closePlan = false): Transaction
     {
-        return DB::transaction(function () use ($customer, $data, $by) {
-            $customer = Customer::lockForUpdate()->findOrFail($customer->id);
+        return DB::transaction(function () use ($plan, $data, $by, $closePlan) {
+            $plan = $this->lock($plan);
 
-            $balance = $customer->wallet_balance + $this->signedKobo($data['type'], $data['amount']);
-            $this->ensureNotOverdrawn($customer, $balance);
+            if (! $plan->isActive()) {
+                throw ValidationException::withMessages(['savings_plan_id' => 'This plan is closed. Open a new plan to keep saving.']);
+            }
+            $this->ensureMinimum($plan, $data);
 
-            $customer->wallet_balance = $balance;
-            $customer->save();
-
-            return $customer->transactions()->create([
+            $transaction = $plan->transactions()->create([
                 ...$data,
-                'balance_after' => $balance / 100,
+                'customer_id' => $plan->customer_id,
+                'commission_exempt' => $plan->dailyKobo() === null,
                 'created_by' => $by->id,
             ]);
+
+            $this->settle($plan);
+
+            if ($closePlan && $transaction->type === Transaction::TYPE_WITHDRAWAL && $plan->balanceKobo() === 0) {
+                $plan->close();
+            }
+
+            return $transaction->refresh();
         });
     }
 
     public function update(Transaction $transaction, array $data): Transaction
     {
         return DB::transaction(function () use ($transaction, $data) {
-            $customer = Customer::withTrashed()->lockForUpdate()->findOrFail($transaction->customer_id);
+            $this->ensureEditable($transaction);
+            $plan = $this->lock($transaction->plan);
+            $this->ensureMinimum($plan, $data);
 
-            $delta = $this->signedKobo($data['type'], $data['amount'])
-                - $this->signedKobo($transaction->type, $transaction->amount);
-            $balance = $customer->wallet_balance + $delta;
-            $this->ensureNotOverdrawn($customer, $balance);
-
-            $customer->wallet_balance = $balance;
-            $customer->save();
-
-            if ($transaction->balance_after !== null) {
-                $data['balance_after'] = $transaction->balance_after + $delta / 100;
-            }
             $transaction->update($data);
+            $this->settle($plan);
 
-            return $transaction;
+            return $transaction->refresh();
         });
     }
 
     public function delete(Transaction $transaction): void
     {
         DB::transaction(function () use ($transaction) {
-            $customer = Customer::withTrashed()->lockForUpdate()->findOrFail($transaction->customer_id);
-
-            $balance = $customer->wallet_balance - $this->signedKobo($transaction->type, $transaction->amount);
-            $this->ensureNotOverdrawn($customer, $balance, 'Deleting this deposit would leave the customer with a negative balance.');
-
-            $customer->wallet_balance = $balance;
-            $customer->save();
+            $this->ensureEditable($transaction);
+            $plan = $this->lock($transaction->plan);
 
             $transaction->delete();
+            $this->settle($plan, overdrawnMessage: 'Deleting this entry would leave the plan with a negative balance.');
         });
     }
 
     /**
-     * Recompute a customer's balance and balance snapshots from their entries.
+     * Trust the entries: drop any carried-over opening balance and replay every plan of a
+     * customer from its entries alone. A dry run reports without saving.
      *
      * @return array{0: int, 1: int} [previous balance, recalculated balance] in kobo
      */
     public function rebuild(Customer $customer, bool $save = true): array
     {
-        return DB::transaction(function () use ($customer, $save) {
+        DB::beginTransaction();
+
+        try {
             $customer = Customer::withTrashed()->lockForUpdate()->findOrFail($customer->id);
             $previous = (int) $customer->wallet_balance;
-            $balance = 0;
 
-            $transactions = $customer->transactions()->orderBy('date')->orderBy('created_at')->get();
-            foreach ($transactions as $transaction) {
-                $balance += $this->signedKobo($transaction->type, $transaction->amount);
-
-                if ($save) {
-                    $transaction->balance_after = $balance / 100;
-                    $transaction->saveQuietly();
-                }
+            $calculated = 0;
+            foreach ($customer->plans()->lockForUpdate()->get() as $plan) {
+                $plan->forceFill(['opening_balance' => 0]);
+                $calculated += $this->settle($plan, strict: false);
             }
 
-            if ($save) {
-                $customer->wallet_balance = max($balance, 0);
-                $customer->save();
-            }
+            $save ? DB::commit() : DB::rollBack();
 
-            return [$previous, $balance];
-        });
+            return [$previous, $calculated];
+        } catch (Throwable $e) {
+            DB::rollBack();
+
+            throw $e;
+        }
     }
 
-    private function signedKobo(string $type, float|string $amount): int
+    /**
+     * A plan's pages, newest first, for statements: what was saved on each and what went to commission.
+     *
+     * @return list<array{number: int, month: string, started_on: string, days: int, capacity: int, saved: float, commission: float, share: float}>
+     */
+    public function pages(SavingsPlan $plan): array
     {
-        $kobo = (int) round($amount * 100);
+        $daily = $plan->dailyKobo();
+        if (! $daily) {
+            return [];
+        }
 
-        return $type === Transaction::TYPE_DEPOSIT ? $kobo : -$kobo;
+        $entries = $plan->transactions()->where('type', '!=', Transaction::TYPE_COMMISSION)->inLedgerOrder()->get();
+
+        return collect($this->replay($plan, $entries, strict: false)['pages'])
+            ->map(fn (array $page) => [
+                'number' => $page['number'],
+                'month' => $page['month'],
+                'started_on' => $page['started_on'],
+                'days' => min(intdiv($page['kobo'], $daily), $page['capacity']),
+                'capacity' => $page['capacity'],
+                'saved' => $page['kobo'] / 100,
+                'commission' => $daily / 100,
+                'share' => ($page['kobo'] - $daily) / 100,
+            ])
+            ->reverse()
+            ->values()
+            ->all();
     }
 
-    private function ensureNotOverdrawn(Customer $customer, int $balance, ?string $message = null): void
+    /**
+     * Replay a plan, then make the stored commissions, page numbers and balances match.
+     *
+     * @return int the plan's recalculated balance in kobo (negative only when $strict is off)
+     */
+    private function settle(SavingsPlan $plan, bool $strict = true, ?string $overdrawnMessage = null): int
+    {
+        [$commissions, $entries] = $plan->transactions()->inLedgerOrder()->get()
+            ->partition(fn (Transaction $transaction) => $transaction->isCommission());
+
+        $result = $this->replay($plan, $entries->values(), $strict, $overdrawnMessage);
+
+        foreach ($entries as $entry) {
+            [$balance, $page, $day] = $result['snapshots'][$entry->id];
+            $entry->balance_after = $balance / 100;
+            $entry->page_number = $page;
+            $entry->page_day = $day;
+            if ($entry->isDirty()) {
+                $entry->saveQuietly();
+            }
+        }
+
+        // Keep existing commission entries (and their receipt numbers) where the page still exists.
+        $existing = $commissions->groupBy('page_number');
+        foreach ($result['commissions'] as $due) {
+            $source = $due['source'];
+            $commission = $existing->get($due['page'])?->shift() ?? new Transaction;
+
+            $commission->fill([
+                'customer_id' => $plan->customer_id,
+                'savings_plan_id' => $plan->id,
+                'type' => Transaction::TYPE_COMMISSION,
+                'amount' => $plan->dailyKobo() / 100,
+                'date' => $source->date->toDateString(),
+                'payment_method' => $source->payment_method,
+                'collected_by' => $source->collected_by,
+                'created_by' => $source->created_by,
+                'description' => 'Commission: '.CarbonImmutable::parse($due['month'].'-01')->format('F Y').' page',
+                'source_id' => $source->id,
+                'page_number' => $due['page'],
+                'balance_after' => $due['balance'] / 100,
+            ]);
+            if (! $commission->exists) {
+                $commission->created_at = $source->created_at;
+            }
+            if ($commission->isDirty()) {
+                $commission->save();
+            }
+        }
+        $existing->flatten(1)->each->delete();
+
+        $plan->balance = max($result['balance'], 0) / 100;
+        $plan->save();
+
+        $customer = Customer::withTrashed()->findOrFail($plan->customer_id);
+        $customer->wallet_balance = (int) SavingsPlan::where('customer_id', $customer->id)->sum('balance');
+        $customer->save();
+
+        return $result['balance'];
+    }
+
+    /**
+     * Walk a plan's deposits and withdrawals in ledger order, working out its pages, the
+     * commission each new page costs and the balance after every entry.
+     *
+     * @param  Collection<int, Transaction>  $entries  deposits and withdrawals only
+     * @return array{pages: array<int, array>, snapshots: array<string, array{0: int, 1: ?int, 2: ?int}>, commissions: list<array>, balance: int}
+     */
+    private function replay(SavingsPlan $plan, Collection $entries, bool $strict, ?string $overdrawnMessage = null): array
+    {
+        $daily = $plan->dailyKobo();
+        $balance = $plan->openingKobo();
+        $pages = [];
+        $current = null;
+        $emptied = false;
+        $snapshots = [];
+        $commissions = [];
+
+        foreach ($entries as $entry) {
+            $amount = (int) round($entry->amount * 100);
+
+            if (! $entry->isDeposit()) {
+                $balance -= $amount;
+                if ($strict) {
+                    $this->ensureNotOverdrawn($plan, $balance, $overdrawnMessage);
+                }
+                $snapshots[$entry->id] = [$balance, null, null];
+                $emptied = $balance <= 0;
+
+                continue;
+            }
+
+            $balance += $amount;
+            $opened = [];
+
+            if ($daily && ! $entry->commission_exempt) {
+                $month = $entry->date->format('Y-m');
+                $capacity = $entry->date->daysInMonth * $daily;
+                $left = $amount;
+
+                while ($left > 0) {
+                    if ($current === null || $pages[$current]['month'] !== $month || $emptied || $pages[$current]['kobo'] >= $capacity) {
+                        $current = count($pages) + 1;
+                        $pages[$current] = [
+                            'number' => $current,
+                            'month' => $month,
+                            'started_on' => $entry->date->toDateString(),
+                            'kobo' => 0,
+                            'capacity' => $entry->date->daysInMonth,
+                        ];
+                        $opened[] = $current;
+                        $emptied = false;
+                    }
+
+                    $take = min($left, $capacity - $pages[$current]['kobo']);
+                    $pages[$current]['kobo'] += $take;
+                    $left -= $take;
+                }
+
+                $snapshots[$entry->id] = [$balance, $current, min(intdiv($pages[$current]['kobo'], $daily), $pages[$current]['capacity'])];
+            } else {
+                $snapshots[$entry->id] = [$balance, null, null];
+            }
+
+            foreach ($opened as $number) {
+                $balance -= $daily;
+                if ($strict) {
+                    $this->ensureNotOverdrawn($plan, $balance, $overdrawnMessage);
+                }
+                $commissions[] = ['page' => $number, 'month' => $pages[$number]['month'], 'source' => $entry, 'balance' => $balance];
+            }
+        }
+
+        return ['pages' => $pages, 'snapshots' => $snapshots, 'commissions' => $commissions, 'balance' => $balance];
+    }
+
+    /**
+     * Lock the customer, then the plan, in that order everywhere to avoid deadlocks.
+     */
+    private function lock(SavingsPlan $plan): SavingsPlan
+    {
+        Customer::withTrashed()->lockForUpdate()->findOrFail($plan->customer_id);
+
+        return SavingsPlan::lockForUpdate()->findOrFail($plan->id);
+    }
+
+    private function ensureMinimum(SavingsPlan $plan, array $data): void
+    {
+        $daily = $plan->dailyKobo();
+
+        if (($data['type'] ?? null) === Transaction::TYPE_DEPOSIT && $daily && (int) round($data['amount'] * 100) < $daily) {
+            throw ValidationException::withMessages([
+                'amount' => 'The smallest payment on this plan is ₦'.number_format($daily / 100, 2).'.',
+            ]);
+        }
+    }
+
+    private function ensureEditable(Transaction $transaction): void
+    {
+        if ($transaction->isCommission()) {
+            throw ValidationException::withMessages([
+                'amount' => 'Commission is worked out from the deposits. Edit or delete the deposit instead.',
+            ]);
+        }
+    }
+
+    private function ensureNotOverdrawn(SavingsPlan $plan, int $balance, ?string $message = null): void
     {
         if ($balance >= 0) {
             return;
         }
 
         throw ValidationException::withMessages([
-            'amount' => $message ?? 'Insufficient balance. '.$customer->full_name.' has ₦'
-                .number_format($customer->wallet_balance / 100, 2).' available.',
+            'amount' => $message ?? 'Insufficient balance. Only ₦'.number_format($plan->balanceKobo() / 100, 2)
+                ." is available on {$plan->name}.",
         ]);
     }
 }

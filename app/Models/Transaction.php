@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
@@ -22,6 +23,15 @@ class Transaction extends Model
 
     public const TYPE_WITHDRAWAL = 'debit';
 
+    // Posted by the ledger, never entered by hand: the first payment on each monthly page.
+    public const TYPE_COMMISSION = 'commission';
+
+    public const TYPE_LABELS = [
+        self::TYPE_DEPOSIT => 'Deposit',
+        self::TYPE_WITHDRAWAL => 'Withdrawal',
+        self::TYPE_COMMISSION => 'Commission',
+    ];
+
     public const PAYMENT_METHODS = [
         'cash' => 'Cash',
         'transfer' => 'Bank Transfer',
@@ -30,14 +40,19 @@ class Transaction extends Model
 
     /** Column headings for exported entries, in toExportRow() order. */
     public const EXPORT_HEADINGS = [
-        'Date', 'Time', 'Receipt No', 'Customer ID', 'Customer Name', 'Phone',
+        'Date', 'Time', 'Receipt No', 'Customer ID', 'Customer Name', 'Phone', 'Plan',
         'Type', 'Amount', 'Payment Method', 'Collected By', 'Remarks', 'Balance After',
     ];
 
     protected $fillable = [
         'customer_id',
+        'savings_plan_id',
         'date',
         'type',
+        'commission_exempt',
+        'page_number',
+        'page_day',
+        'source_id',
         'payment_method',
         'amount',
         'balance_after',
@@ -53,12 +68,30 @@ class Transaction extends Model
         return [
             'date' => 'date:Y-m-d',
             'amount' => 'float',
+            'commission_exempt' => 'boolean',
         ];
     }
 
     public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class)->withTrashed();
+    }
+
+    public function plan(): BelongsTo
+    {
+        return $this->belongsTo(SavingsPlan::class, 'savings_plan_id');
+    }
+
+    /** On a deposit: the commission entries for the pages its payment started. */
+    public function pageCommissions(): HasMany
+    {
+        return $this->hasMany(self::class, 'source_id');
+    }
+
+    /** On a commission entry: the deposit that started the page. */
+    public function source(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'source_id');
     }
 
     public function collector(): BelongsTo
@@ -76,8 +109,18 @@ class Transaction extends Model
         return $this->type === self::TYPE_DEPOSIT;
     }
 
+    public function isCommission(): bool
+    {
+        return $this->type === self::TYPE_COMMISSION;
+    }
+
+    public function typeLabel(): string
+    {
+        return self::TYPE_LABELS[$this->type] ?? ucfirst($this->type);
+    }
+
     /**
-     * The entry as one CSV/spreadsheet row; expects customer and collector to be loaded.
+     * The entry as one CSV/spreadsheet row; expects customer, plan and collector to be loaded.
      */
     public function toExportRow(): array
     {
@@ -88,7 +131,8 @@ class Transaction extends Model
             $this->customer?->reg_no,
             $this->customer?->full_name,
             $this->customer?->phone,
-            $this->isDeposit() ? 'Deposit' : 'Withdrawal',
+            $this->plan?->name,
+            $this->typeLabel(),
             $this->amount,
             self::PAYMENT_METHODS[$this->payment_method] ?? $this->payment_method,
             $this->collector?->name,
@@ -121,6 +165,21 @@ class Transaction extends Model
     public function scopeWithdrawals(Builder $query): void
     {
         $query->where('type', self::TYPE_WITHDRAWAL);
+    }
+
+    public function scopeCommissions(Builder $query): void
+    {
+        $query->where('type', self::TYPE_COMMISSION);
+    }
+
+    /**
+     * The order the ledger posts entries in: by business date, then as recorded.
+     * A commission entry shares its deposit's timestamp, so it follows that deposit.
+     */
+    public function scopeInLedgerOrder(Builder $query, bool $descending = false): void
+    {
+        $direction = $descending ? 'desc' : 'asc';
+        $query->orderBy('date', $direction)->orderBy('created_at', $direction)->orderBy('id', $direction);
     }
 
     /**

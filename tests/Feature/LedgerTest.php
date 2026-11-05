@@ -8,6 +8,7 @@ function entry(Customer $customer, User $by, array $overrides = []): array
 {
     return [
         'customer_id' => $customer->id,
+        'savings_plan_id' => $customer->plans()->value('id'),
         'type' => Transaction::TYPE_DEPOSIT,
         'amount' => 1000,
         'date' => today()->toDateString(),

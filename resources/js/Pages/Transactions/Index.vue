@@ -6,7 +6,7 @@ import EmptyState from '@/Components/EmptyState.vue';
 import Icon from '@/Components/Icon.vue';
 import Pagination from '@/Components/Pagination.vue';
 import TransactionItem from '@/Components/TransactionItem.vue';
-import { formatShortDate, formatTime, isDeposit, naira, signedNaira, typeLabel } from '@/utils/format';
+import { entryTone, formatShortDate, formatTime, naira, signedNaira, typeLabel } from '@/utils/format';
 
 const props = defineProps({
     transactions: Object,
@@ -26,11 +26,12 @@ const filters = reactive({
 });
 const showFilters = ref(Boolean(props.filters.from || props.filters.to || props.filters.collector));
 
-const title = computed(() => ({ credit: 'Deposits', debit: 'Withdrawals' })[props.filters.type] || 'Transactions');
+const title = computed(() => ({ credit: 'Deposits', debit: 'Withdrawals', commission: 'Commission' })[props.filters.type] || 'Transactions');
 const types = [
     { value: '', label: 'All' },
     { value: 'credit', label: 'Deposits' },
     { value: 'debit', label: 'Withdrawals' },
+    { value: 'commission', label: 'Commission' },
 ];
 
 const params = computed(() => Object.fromEntries(Object.entries(filters).filter(([, value]) => value !== '')));
@@ -108,14 +109,18 @@ watch(() => [filters.type, filters.from, filters.to, filters.collector], apply);
                 </label>
             </div>
 
-            <div class="grid grid-cols-2 gap-3">
-                <div class="card px-4 py-3">
+            <div class="grid grid-cols-3 gap-2 sm:gap-3">
+                <div class="card px-3 py-3 sm:px-4">
                     <p class="text-xs text-slate-500">Deposits</p>
-                    <p class="font-bold text-emerald-600">{{ naira(totals.deposits) }}</p>
+                    <p class="text-sm font-bold text-emerald-600 sm:text-base">{{ naira(totals.deposits) }}</p>
                 </div>
-                <div class="card px-4 py-3">
+                <div class="card px-3 py-3 sm:px-4">
                     <p class="text-xs text-slate-500">Withdrawals</p>
-                    <p class="font-bold text-red-600">{{ naira(totals.withdrawals) }}</p>
+                    <p class="text-sm font-bold text-red-600 sm:text-base">{{ naira(totals.withdrawals) }}</p>
+                </div>
+                <div class="card px-3 py-3 sm:px-4">
+                    <p class="text-xs text-slate-500">Commission</p>
+                    <p class="text-sm font-bold text-amber-600 sm:text-base">{{ naira(totals.commission) }}</p>
                 </div>
             </div>
         </div>
@@ -146,12 +151,12 @@ watch(() => [filters.type, filters.from, filters.to, filters.collector], apply);
                             </td>
                             <td class="px-4 py-3">
                                 <Link :href="route('customers.show', t.customer_id)" class="font-medium text-slate-900 hover:text-brand-700">{{ t.customer?.full_name }}</Link>
-                                <span class="block text-xs text-slate-500">{{ t.customer?.reg_no }}</span>
+                                <span class="block text-xs text-slate-500">{{ [t.customer?.reg_no, t.plan?.name].filter(Boolean).join(' · ') }}</span>
                             </td>
-                            <td :class="['px-4 py-3 font-medium', isDeposit(t) ? 'text-emerald-600' : 'text-red-600']">{{ typeLabel(t.type) }}</td>
+                            <td :class="['px-4 py-3 font-medium', entryTone(t)]">{{ typeLabel(t.type) }}</td>
                             <td class="px-4 py-3 text-slate-600">{{ paymentMethods[t.payment_method] || t.payment_method }}</td>
                             <td class="px-4 py-3 text-slate-600">{{ t.collector?.name || '—' }}</td>
-                            <td :class="['whitespace-nowrap px-4 py-3 text-right font-semibold', isDeposit(t) ? 'text-emerald-600' : 'text-red-600']">
+                            <td :class="['whitespace-nowrap px-4 py-3 text-right font-semibold', entryTone(t)]">
                                 {{ signedNaira(t) }}
                             </td>
                             <td class="px-6 py-3 text-right">

@@ -15,7 +15,7 @@ test('new customers get the next ID for the configured prefix', function () {
     Customer::factory()->create(['reg_no' => 'LEGACY-7']);
 
     $this->actingAs($this->admin)->post(route('customers.store'), [
-        'first_name' => 'Chinedu', 'last_name' => 'Okafor', 'phone' => '08012345678',
+        'first_name' => 'Chinedu', 'last_name' => 'Okafor', 'phone' => '08012345678', 'daily_amount' => 500,
     ])->assertSessionHasNoErrors();
 
     $customer = Customer::where('first_name', 'Chinedu')->sole();
@@ -59,7 +59,7 @@ test('customers can be found by name, full name, phone or ID', function (string 
 test('the statement shows running balances, newest first', function () {
     $customer = Customer::factory()->create();
     $ledger = app(Ledger::class);
-    $post = fn ($type, $amount, $date) => $ledger->record($customer, [
+    $post = fn ($type, $amount, $date) => $ledger->record($customer->plans()->first(), [
         'type' => $type, 'amount' => $amount, 'date' => $date, 'payment_method' => 'cash', 'collected_by' => $this->admin->id,
     ], $this->admin);
 

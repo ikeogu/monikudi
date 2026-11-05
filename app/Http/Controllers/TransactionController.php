@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Customer;
+use App\Models\SavingsPlan;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Services\Ledger;
@@ -23,14 +24,14 @@ class TransactionController extends Controller
 
         return Inertia::render('Transactions/Index', [
             'transactions' => (clone $query)
-                ->with(['customer:id,reg_no,first_name,last_name,phone', 'collector:id,name'])
-                ->orderByDesc('date')
-                ->orderByDesc('created_at')
+                ->with(['customer:id,reg_no,first_name,last_name,phone', 'plan:id,name', 'collector:id,name'])
+                ->inLedgerOrder(descending: true)
                 ->paginate(20)
                 ->withQueryString(),
             'totals' => [
                 'deposits' => (float) (clone $query)->deposits()->sum('amount'),
                 'withdrawals' => (float) (clone $query)->withdrawals()->sum('amount'),
+                'commission' => (float) (clone $query)->commissions()->sum('amount'),
             ],
             'filters' => $filters,
             'collectors' => $request->user()->isAdmin() ? User::orderBy('name')->get(['id', 'name']) : [],
@@ -47,12 +48,12 @@ class TransactionController extends Controller
         $name = match ($filters['type'] ?? null) {
             Transaction::TYPE_DEPOSIT => 'Deposits',
             Transaction::TYPE_WITHDRAWAL => 'Withdrawals',
+            Transaction::TYPE_COMMISSION => 'Commission',
             default => 'Transactions',
         };
 
-        $rows = $query->with(['customer', 'collector:id,name'])
-            ->orderByDesc('date')
-            ->orderByDesc('created_at')
+        $rows = $query->with(['customer', 'plan:id,name', 'collector:id,name'])
+            ->inLedgerOrder(descending: true)
             ->lazy(500)
             ->map->toExportRow();
 
@@ -66,11 +67,15 @@ class TransactionController extends Controller
      */
     public function create(Request $request)
     {
+        $customer = $request->filled('customer')
+            ? Customer::find($request->input('customer'), ['id', 'reg_no', 'first_name', 'last_name', 'phone', 'wallet_balance'])
+            : null;
+
         return Inertia::render('Transactions/Create', [
             'type' => $request->input('type') === Transaction::TYPE_WITHDRAWAL ? Transaction::TYPE_WITHDRAWAL : Transaction::TYPE_DEPOSIT,
-            'customer' => $request->filled('customer')
-                ? Customer::find($request->input('customer'), ['id', 'reg_no', 'first_name', 'last_name', 'phone', 'wallet_balance'])
-                : null,
+            'customer' => $customer,
+            'plans' => $customer ? $customer->plans()->active()->oldest()->get()->map->toFormArray() : [],
+            'plan' => $request->input('plan'),
             'collectors' => $this->collectorOptions($request->user()),
             'paymentMethods' => Transaction::PAYMENT_METHODS,
             'today' => today()->toDateString(),
@@ -78,22 +83,35 @@ class TransactionController extends Controller
     }
 
     /**
-     * Post a deposit or withdrawal and update the customer's balance.
+     * Post a deposit or withdrawal on one of a customer's plans.
      */
     public function store(Request $request, Ledger $ledger)
     {
         $validated = $request->validate([
             'customer_id' => ['required', Rule::exists('customers', 'id')->withoutTrashed()],
+            'savings_plan_id' => [
+                'required',
+                Rule::exists('savings_plans', 'id')->where('customer_id', $request->input('customer_id')),
+            ],
+            'close_plan' => 'boolean',
             ...$this->rules($request->user()),
         ]);
 
-        $customer = Customer::findOrFail($validated['customer_id']);
-        $transaction = $ledger->record($customer, collect($validated)->except('customer_id')->all(), $request->user());
+        $plan = SavingsPlan::with('customer')->findOrFail($validated['savings_plan_id']);
+        $transaction = $ledger->record(
+            $plan,
+            collect($validated)->except(['customer_id', 'savings_plan_id', 'close_plan'])->all(),
+            $request->user(),
+            $request->boolean('close_plan'),
+        );
 
-        $label = $transaction->isDeposit() ? 'Deposit' : 'Withdrawal';
+        $message = "{$transaction->typeLabel()} of ₦".number_format($transaction->amount, 2)." saved for {$plan->customer->full_name}.";
+        $commission = (float) $transaction->pageCommissions()->sum('amount');
+        if ($commission > 0) {
+            $message .= ' ₦'.number_format($commission, 2).' of it is commission for a new page.';
+        }
 
-        return redirect()->route('transactions.show', $transaction)
-            ->with('success', "{$label} of ₦".number_format($transaction->amount, 2)." saved for {$customer->full_name}.");
+        return redirect()->route('transactions.show', $transaction)->with('success', $message);
     }
 
     /**
@@ -102,15 +120,24 @@ class TransactionController extends Controller
     public function show(Transaction $transaction)
     {
         return Inertia::render('Transactions/Show', [
-            'transaction' => $transaction->load(['customer', 'collector:id,name', 'creator:id,name']),
+            'transaction' => $transaction->load([
+                'customer', 'plan:id,name,daily_amount,status', 'collector:id,name', 'creator:id,name',
+                'pageCommissions' => fn ($query) => $query->inLedgerOrder(),
+                'source:id,date,amount,page_number',
+            ]),
             'paymentMethods' => Transaction::PAYMENT_METHODS,
         ]);
     }
 
     public function edit(Request $request, Transaction $transaction)
     {
+        if ($transaction->isCommission()) {
+            return redirect()->route('transactions.show', $transaction)
+                ->with('error', 'Commission is worked out from the deposits. Edit or delete the deposit instead.');
+        }
+
         return Inertia::render('Transactions/Edit', [
-            'transaction' => $transaction->load('customer'),
+            'transaction' => $transaction->load(['customer', 'plan:id,name']),
             'collectors' => $this->collectorOptions($request->user()),
             'paymentMethods' => Transaction::PAYMENT_METHODS,
             'today' => today()->toDateString(),
@@ -140,7 +167,7 @@ class TransactionController extends Controller
     {
         $filters = $request->validate([
             'search' => 'nullable|string|max:100',
-            'type' => ['nullable', Rule::in([Transaction::TYPE_DEPOSIT, Transaction::TYPE_WITHDRAWAL])],
+            'type' => ['nullable', Rule::in(array_keys(Transaction::TYPE_LABELS))],
             'from' => 'nullable|date',
             'to' => 'nullable|date',
             'collector' => 'nullable|integer',

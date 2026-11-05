@@ -8,7 +8,7 @@ import Icon from '@/Components/Icon.vue';
 import Pagination from '@/Components/Pagination.vue';
 import StatCard from '@/Components/StatCard.vue';
 import TransactionItem from '@/Components/TransactionItem.vue';
-import { formatDate, formatTime, isDeposit, naira, signedNaira, typeLabel } from '@/utils/format';
+import { entryTone, formatDate, formatTime, naira, signedNaira, typeLabel } from '@/utils/format';
 
 const props = defineProps({
     filters: Object,
@@ -41,6 +41,7 @@ const types = [
     { value: '', label: 'All' },
     { value: 'credit', label: 'Deposits' },
     { value: 'debit', label: 'Withdrawals' },
+    { value: 'commission', label: 'Commission' },
 ];
 
 const selectedCustomer = ref(props.customer);
@@ -234,7 +235,7 @@ watch(selectedCustomer, () => visit());
         <div class="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-5">
             <StatCard label="Deposits" :value="naira(summary.deposits)" :hint="entryCount(summary.depositCount)" icon="arrow-down-circle" tone="green" />
             <StatCard label="Withdrawals" :value="naira(summary.withdrawals)" :hint="entryCount(summary.withdrawalCount)" icon="arrow-up-circle" tone="red" />
-            <StatCard label="Net" :value="naira(summary.net)" hint="Deposits minus withdrawals" icon="banknotes" tone="brand" />
+            <StatCard label="Commission" :value="naira(summary.commission)" :hint="`${summary.commissionCount} page${summary.commissionCount === 1 ? '' : 's'} started`" icon="banknotes" tone="amber" />
             <StatCard v-if="filters.period === 'day'" label="Customers" :value="summary.customers" hint="Served on this day" icon="users" tone="slate" />
             <StatCard
                 v-else
@@ -282,6 +283,7 @@ watch(selectedCustomer, () => visit());
                     <div v-if="day.count" class="text-right text-sm">
                         <p v-if="day.deposits" class="font-semibold text-emerald-600">+{{ naira(day.deposits) }}</p>
                         <p v-if="day.withdrawals" class="font-semibold text-red-600">-{{ naira(day.withdrawals) }}</p>
+                        <p v-if="day.commission" class="text-xs font-semibold text-amber-600">Commission {{ naira(day.commission) }}</p>
                         <p v-if="day.deposits && day.withdrawals" class="text-xs text-slate-500">Net {{ naira(day.net) }}</p>
                     </div>
                     <span v-else class="text-slate-300">—</span>
@@ -294,6 +296,7 @@ watch(selectedCustomer, () => visit());
                     <div class="text-right">
                         <p class="text-emerald-600">+{{ naira(summary.deposits) }}</p>
                         <p class="text-red-600">-{{ naira(summary.withdrawals) }}</p>
+                        <p class="text-amber-600">Commission {{ naira(summary.commission) }}</p>
                         <p class="text-slate-900">Net {{ naira(summary.net) }}</p>
                     </div>
                 </div>
@@ -307,6 +310,7 @@ watch(selectedCustomer, () => visit());
                             <th class="hidden px-4 py-2.5 text-right sm:table-cell">Entries</th>
                             <th class="px-4 py-2.5 text-right">Deposits</th>
                             <th class="px-4 py-2.5 text-right">Withdrawals</th>
+                            <th class="px-4 py-2.5 text-right">Commission</th>
                             <th class="px-4 py-2.5 text-right">Net</th>
                             <th class="hidden px-4 py-2.5 text-right md:table-cell lg:px-6">Running total</th>
                         </tr>
@@ -322,6 +326,7 @@ watch(selectedCustomer, () => visit());
                             <td class="hidden px-4 py-2.5 text-right sm:table-cell">{{ day.count || '—' }}</td>
                             <td :class="['whitespace-nowrap px-4 py-2.5 text-right', day.deposits && 'text-emerald-600']">{{ day.deposits ? naira(day.deposits) : '—' }}</td>
                             <td :class="['whitespace-nowrap px-4 py-2.5 text-right', day.withdrawals && 'text-red-600']">{{ day.withdrawals ? naira(day.withdrawals) : '—' }}</td>
+                            <td :class="['whitespace-nowrap px-4 py-2.5 text-right', day.commission && 'text-amber-600']">{{ day.commission ? naira(day.commission) : '—' }}</td>
                             <td :class="['whitespace-nowrap px-4 py-2.5 text-right', day.count && 'font-semibold text-slate-900']">{{ day.count ? naira(day.net) : '—' }}</td>
                             <td class="hidden whitespace-nowrap px-4 py-2.5 text-right text-slate-500 md:table-cell lg:px-6">{{ naira(day.running) }}</td>
                         </tr>
@@ -332,6 +337,7 @@ watch(selectedCustomer, () => visit());
                             <td class="hidden px-4 py-3 text-right sm:table-cell">{{ summary.count }}</td>
                             <td class="whitespace-nowrap px-4 py-3 text-right text-emerald-600">{{ naira(summary.deposits) }}</td>
                             <td class="whitespace-nowrap px-4 py-3 text-right text-red-600">{{ naira(summary.withdrawals) }}</td>
+                            <td class="whitespace-nowrap px-4 py-3 text-right text-amber-600">{{ naira(summary.commission) }}</td>
                             <td class="whitespace-nowrap px-4 py-3 text-right">{{ naira(summary.net) }}</td>
                             <td class="hidden md:table-cell"></td>
                         </tr>
@@ -379,6 +385,7 @@ watch(selectedCustomer, () => visit());
                                         {{ entryCount(dayTotals[group.date]?.count) }}
                                         · Deposits <span class="font-semibold text-emerald-600">{{ naira(dayTotals[group.date]?.deposits) }}</span>
                                         · Withdrawals <span class="font-semibold text-red-600">{{ naira(dayTotals[group.date]?.withdrawals) }}</span>
+                                        · Commission <span class="font-semibold text-amber-600">{{ naira(dayTotals[group.date]?.commission) }}</span>
                                         · Net <span class="font-semibold text-slate-900">{{ naira(dayTotals[group.date]?.net) }}</span>
                                     </span>
                                 </div>
@@ -390,10 +397,10 @@ watch(selectedCustomer, () => visit());
                                 <Link :href="route('customers.show', t.customer_id)" class="font-medium text-slate-900 hover:text-brand-700">{{ t.customer?.full_name }}</Link>
                                 <span class="block text-xs text-slate-500">{{ t.customer?.reg_no }}</span>
                             </td>
-                            <td :class="['px-4 py-3 font-medium', isDeposit(t) ? 'text-emerald-600' : 'text-red-600']">{{ typeLabel(t.type) }}</td>
+                            <td :class="['px-4 py-3 font-medium', entryTone(t)]">{{ typeLabel(t.type) }}</td>
                             <td class="px-4 py-3 text-slate-600">{{ paymentMethods[t.payment_method] || t.payment_method }}</td>
                             <td class="px-4 py-3 text-slate-600">{{ t.collector?.name || '—' }}</td>
-                            <td :class="['whitespace-nowrap px-4 py-3 text-right font-semibold', isDeposit(t) ? 'text-emerald-600' : 'text-red-600']">{{ signedNaira(t) }}</td>
+                            <td :class="['whitespace-nowrap px-4 py-3 text-right font-semibold', entryTone(t)]">{{ signedNaira(t) }}</td>
                             <td class="px-6 py-3 text-right print:hidden">
                                 <Link :href="route('transactions.show', t.id)" class="inline-flex items-center gap-1 text-sm font-medium text-brand-700 hover:text-brand-900">
                                     <Icon name="document-text" class="h-4 w-4" /> Receipt

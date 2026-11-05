@@ -85,7 +85,7 @@ function printReport() {
         <div class="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-5">
             <StatCard label="Deposits" :value="naira(summary.deposits)" :hint="`${summary.depositCount} entries`" icon="arrow-down-circle" tone="green" />
             <StatCard label="Withdrawals" :value="naira(summary.withdrawals)" :hint="`${summary.withdrawalCount} entries`" icon="arrow-up-circle" tone="red" />
-            <StatCard label="Net Savings" :value="naira(summary.net)" hint="Deposits minus withdrawals" icon="banknotes" tone="brand" />
+            <StatCard label="Commission" :value="naira(summary.commission)" :hint="`${summary.commissionCount} page${summary.commissionCount === 1 ? '' : 's'} started`" icon="banknotes" tone="amber" />
             <StatCard label="Customers Served" :value="summary.customersServed" :hint="`${summary.newCustomers} newly registered`" icon="users" tone="slate" />
         </div>
 
@@ -102,6 +102,7 @@ function printReport() {
                             <th class="hidden px-4 py-2.5 text-right sm:table-cell">Entries</th>
                             <th class="px-4 py-2.5 text-right">Deposits</th>
                             <th class="px-4 py-2.5 text-right">Withdrawals</th>
+                            <th class="hidden px-4 py-2.5 text-right sm:table-cell">Commission</th>
                             <th class="px-4 py-2.5 text-right">Net</th>
                         </tr>
                     </thead>
@@ -111,10 +112,11 @@ function printReport() {
                             <td class="hidden px-4 py-2.5 text-right text-slate-600 sm:table-cell">{{ day.count }}</td>
                             <td class="px-4 py-2.5 text-right text-emerald-600">{{ naira(day.deposits) }}</td>
                             <td class="px-4 py-2.5 text-right text-red-600">{{ naira(day.withdrawals) }}</td>
+                            <td class="hidden px-4 py-2.5 text-right text-amber-600 sm:table-cell">{{ naira(day.commission) }}</td>
                             <td class="px-4 py-2.5 text-right font-semibold text-slate-900">{{ naira(day.net) }}</td>
                         </tr>
                         <tr v-if="!activeDays.length">
-                            <td colspan="5" class="px-4 py-6 text-center text-slate-500">No entries in this period.</td>
+                            <td colspan="6" class="px-4 py-6 text-center text-slate-500">No entries in this period.</td>
                         </tr>
                     </tbody>
                 </table>

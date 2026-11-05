@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Models\Customer;
+use App\Models\SavingsPlan;
 use App\Models\Transaction;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -22,6 +23,7 @@ class TransactionFactory extends Factory
     {
         return [
             'customer_id' => Customer::factory(),
+            'savings_plan_id' => fn (array $attributes) => SavingsPlan::where('customer_id', $attributes['customer_id'])->value('id'),
             'type' => Transaction::TYPE_DEPOSIT,
             'amount' => fake()->randomElement([500, 1000, 2000]),
             'payment_method' => 'cash',

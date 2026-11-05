@@ -31,6 +31,11 @@ class Customer extends Model
         return $this->hasMany(Transaction::class);
     }
 
+    public function plans(): HasMany
+    {
+        return $this->hasMany(SavingsPlan::class);
+    }
+
     public function registeredBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');

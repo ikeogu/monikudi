@@ -6,6 +6,7 @@ use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ReportController;
+use App\Http\Controllers\SavingsPlanController;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\StaffController;
 use App\Http\Controllers\TransactionController;
@@ -25,6 +26,9 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/customers/next-id', [CustomerController::class, 'nextId'])->name('customers.next-id');
     Route::resource('customers', CustomerController::class)->except('destroy');
     Route::get('/customers/{customer}/export', [CustomerController::class, 'export'])->name('customers.export');
+    Route::get('/customers/{customer}/plans', [CustomerController::class, 'plans'])->name('customers.plans');
+    Route::get('/customers/{customer}/plans/create', [SavingsPlanController::class, 'create'])->name('plans.create');
+    Route::post('/customers/{customer}/plans', [SavingsPlanController::class, 'store'])->name('plans.store');
 
     Route::get('/transactions/export', [TransactionController::class, 'export'])->name('transactions.export');
     Route::resource('transactions', TransactionController::class)->only(['index', 'create', 'store', 'show']);
@@ -40,6 +44,10 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/customers/{customer}/recalculate', [CustomerController::class, 'recalculate'])->name('customers.recalculate');
 
         Route::resource('transactions', TransactionController::class)->only(['edit', 'update', 'destroy']);
+
+        Route::get('/plans/{plan}/edit', [SavingsPlanController::class, 'edit'])->name('plans.edit');
+        Route::put('/plans/{plan}', [SavingsPlanController::class, 'update'])->name('plans.update');
+        Route::post('/plans/{plan}/close', [SavingsPlanController::class, 'close'])->name('plans.close');
 
         Route::resource('staff', StaffController::class)->except(['show', 'destroy'])->parameters(['staff' => 'user']);
 
