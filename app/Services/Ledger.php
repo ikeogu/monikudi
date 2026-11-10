@@ -16,8 +16,8 @@ use Throwable;
  * Every change to a balance goes through here, inside a DB transaction with the customer
  * and plan rows locked.
  *
- * Commission works in monthly pages. Each calendar month is a page holding as many days as
- * the month has (31, 30, 29 or 28). The first payment on a page is the business's
+ * Commission works in monthly pages. Each calendar month gets a page of 31 days, whatever
+ * the month's length (SavingsPlan::PAGE_DAYS). The first payment on a page is the business's
  * commission: one day's amount. A new page starts when a plan gets its first counted
  * deposit, when a deposit falls in a new month, when the current page is full (the overflow
  * opens the next page), or after a withdrawal emptied the plan. After every change, settle()
@@ -239,7 +239,7 @@ class Ledger
 
             if ($daily && ! $entry->commission_exempt) {
                 $month = $entry->date->format('Y-m');
-                $capacity = $entry->date->daysInMonth * $daily;
+                $capacity = SavingsPlan::PAGE_DAYS * $daily;
                 $left = $amount;
 
                 while ($left > 0) {
@@ -250,7 +250,7 @@ class Ledger
                             'month' => $month,
                             'started_on' => $entry->date->toDateString(),
                             'kobo' => 0,
-                            'capacity' => $entry->date->daysInMonth,
+                            'capacity' => SavingsPlan::PAGE_DAYS,
                         ];
                         $opened[] = $current;
                         $emptied = false;

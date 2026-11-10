@@ -120,7 +120,7 @@ test('the customer page lists plans with their pages, and the statement can show
         ->has('plans', 2)
         ->where('plans.1.name', 'House rent')
         ->where('plans.1.commission', 500)
-        ->where('plans.1.current_page', ['month' => '2026-11', 'number' => 1, 'day' => 5, 'days' => 30])
+        ->where('plans.1.current_page', ['month' => '2026-11', 'number' => 1, 'day' => 5, 'days' => 31])
         ->where('plans.1.pages.0.share', 2000)
         ->where('summary.commission', 500)
         ->has('transactions', 2));
