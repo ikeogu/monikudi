@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue';
 import { usePage } from '@inertiajs/vue3';
-import { monthLabel, naira } from '@/utils/format';
+import { monthLabel, naira, PAGE_DAYS } from '@/utils/format';
 
 const props = defineProps({
     form: { type: Object, required: true },
@@ -22,10 +22,6 @@ const overdrawn = computed(() => !isDeposit.value && props.balance !== null && a
 const collectsAll = computed(() => !isDeposit.value && props.balance > 0 && amount.value === props.balance);
 
 const month = computed(() => (props.form.date || props.today).slice(0, 7));
-const daysInMonth = computed(() => {
-    const [year, monthNumber] = month.value.split('-').map(Number);
-    return new Date(year, monthNumber, 0).getDate();
-});
 // The day reached on this month's page so far, or null when the next payment starts a new page.
 const dayOnPage = computed(() => {
     const page = props.plan?.current_page;
@@ -36,10 +32,10 @@ const quickAmounts = computed(() => {
     if (!isDeposit.value) return [];
     if (!daily.value) return [200, 500, 1000, 2000, 5000].map((value) => ({ value, label: naira(value).replace('.00', '') }));
 
-    const rest = daysInMonth.value - (dayOnPage.value ?? 0);
+    const rest = PAGE_DAYS - (dayOnPage.value ?? 0);
     return [
         ...[1, 5, 10].map((days) => ({ value: days * daily.value, label: `${days} day${days === 1 ? '' : 's'}` })),
-        { value: rest * daily.value, label: `Rest of month (${rest})` },
+        { value: rest * daily.value, label: `Fill the page (${rest} days)` },
     ];
 });
 
@@ -55,10 +51,10 @@ const pageNote = computed(() => {
             text: `First payment of ${name}'s page: ${naira(daily.value)} goes to commission. Counts as ${days} day${days === 1 ? '' : 's'}.`,
         };
     }
-    if (dayOnPage.value + days > daysInMonth.value) {
+    if (dayOnPage.value + days > PAGE_DAYS) {
         return { commission: true, text: `Fills ${name}'s page and starts another, so ${naira(daily.value)} goes to commission.` };
     }
-    return { commission: false, text: `Counts as ${days} day${days === 1 ? '' : 's'} · Day ${dayOnPage.value + days} of ${daysInMonth.value}.` };
+    return { commission: false, text: `Counts as ${days} day${days === 1 ? '' : 's'} · Day ${dayOnPage.value + days} of ${PAGE_DAYS}.` };
 });
 </script>
 

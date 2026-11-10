@@ -60,26 +60,27 @@ test('a bigger first payment still gives up only one day', function () {
         ->and($this->plan->fresh()->balance)->toEqual(4500);
 });
 
-test('a page holds as many days as its month has', function (string $first, int $days) {
-    $full = pay($this->plan, 500 * $days, $first);
+test('every page holds 31 days, whatever the month\'s length', function (string $first) {
+    $full = pay($this->plan, 500 * 31, $first);
     $next = pay($this->plan, 500, $first);
 
-    expect([$full->page_number, $full->page_day])->toBe([1, $days])
+    expect([$full->page_number, $full->page_day])->toBe([1, 31])
         ->and([$next->page_number, $next->page_day])->toBe([2, 1])
-        ->and(commissions($this->plan))->toHaveCount(2);
+        ->and(commissions($this->plan))->toHaveCount(2)
+        ->and($this->plan->currentPage()['days'])->toBe(31);
 })->with([
-    'October' => ['2026-10-01', 31],
-    'November' => ['2026-11-01', 30],
-    'February 2027' => ['2027-02-01', 28],
-    'February 2028 (leap year)' => ['2028-02-01', 29],
+    'October (31 days)' => ['2026-10-01'],
+    'November (30 days)' => ['2026-11-01'],
+    'February 2027 (28 days)' => ['2027-02-01'],
+    'February 2028 (29 days)' => ['2028-02-01'],
 ]);
 
-test('paying more days than the month has fills the page and opens another', function () {
-    $deposit = pay($this->plan, 500 * 31, '2026-11-03');
+test('paying more than 31 days at once fills the page and opens another', function () {
+    $deposit = pay($this->plan, 500 * 32, '2026-11-03');
 
     expect(commissions($this->plan)->pluck('page_number')->all())->toBe([1, 2])
         ->and([$deposit->page_number, $deposit->page_day])->toBe([2, 1])
-        ->and($this->plan->fresh()->balance)->toEqual(14500);
+        ->and($this->plan->fresh()->balance)->toEqual(15000);
 });
 
 test('collecting everything ends the page, so the next payment starts a new one', function () {
@@ -207,7 +208,7 @@ test('pages show what was saved each month and what went to commission', functio
     pay($this->plan, 2500, '2026-11-02');
 
     expect($this->ledger->pages($this->plan))->toBe([
-        ['number' => 2, 'month' => '2026-11', 'started_on' => '2026-11-02', 'days' => 5, 'capacity' => 30, 'saved' => 2500, 'commission' => 500, 'share' => 2000],
+        ['number' => 2, 'month' => '2026-11', 'started_on' => '2026-11-02', 'days' => 5, 'capacity' => 31, 'saved' => 2500, 'commission' => 500, 'share' => 2000],
         ['number' => 1, 'month' => '2026-10', 'started_on' => '2026-10-01', 'days' => 21, 'capacity' => 31, 'saved' => 10500, 'commission' => 500, 'share' => 10000],
     ]);
 });
@@ -216,7 +217,7 @@ test('the deposit form knows which page the next payment lands on', function () 
     expect($this->plan->currentPage())->toBeNull();
 
     pay($this->plan, 1500, '2026-11-04');
-    expect($this->plan->currentPage())->toBe(['month' => '2026-11', 'number' => 1, 'day' => 3, 'days' => 30]);
+    expect($this->plan->currentPage())->toBe(['month' => '2026-11', 'number' => 1, 'day' => 3, 'days' => 31]);
 
     pay($this->plan, 1000, '2026-11-05', Transaction::TYPE_WITHDRAWAL);
     expect($this->plan->currentPage())->toBeNull();

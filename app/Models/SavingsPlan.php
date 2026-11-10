@@ -13,13 +13,16 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
- * A savings goal with a fixed daily amount. Each calendar month is a page with as many
- * days as the month has; the first payment on a page is the business's commission.
- * The balance is kept by App\Services\Ledger.
+ * A savings goal with a fixed daily amount. Each calendar month gets a page of 31 days;
+ * the first payment on a page is the business's commission. The balance is kept by
+ * App\Services\Ledger.
  */
 class SavingsPlan extends Model
 {
     use HasFactory, HasUlids;
+
+    /** Days on every page, whatever the calendar month's length: 1 for commission, 30 for the customer. */
+    public const PAGE_DAYS = 31;
 
     public const STATUS_ACTIVE = 'active';
 
@@ -126,7 +129,7 @@ class SavingsPlan extends Model
             'month' => $deposit->date->format('Y-m'),
             'number' => $deposit->page_number,
             'day' => $deposit->page_day,
-            'days' => $deposit->date->daysInMonth,
+            'days' => self::PAGE_DAYS,
         ];
     }
 

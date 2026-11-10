@@ -5,6 +5,9 @@ export const DEPOSIT = 'credit';
 export const WITHDRAWAL = 'debit';
 export const COMMISSION = 'commission';
 
+// Every monthly page has 31 days, whatever the month's length (SavingsPlan::PAGE_DAYS).
+export const PAGE_DAYS = 31;
+
 /** ₦1,234.50 */
 export function naira(value) {
     return nairaFormatter.format(Number(value || 0));
@@ -49,12 +52,10 @@ export function monthLabel(month) {
     return formatDate(`${month}-01`, { day: undefined, month: 'long' });
 }
 
-/** "November page · Day 17 of 30" for a deposit that counted toward a page. */
+/** "November page · Day 17 of 31" for a deposit that counted toward a page. */
 export function pageLabel(transaction) {
     if (!transaction.page_number) return '';
-    const date = toDate(transaction.date);
-    const days = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-    return `${formatDate(transaction.date, { day: undefined, year: undefined, month: 'long' })} page · Day ${transaction.page_day} of ${days}`;
+    return `${formatDate(transaction.date, { day: undefined, year: undefined, month: 'long' })} page · Day ${transaction.page_day} of ${PAGE_DAYS}`;
 }
 
 /**
