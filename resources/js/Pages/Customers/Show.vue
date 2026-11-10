@@ -27,6 +27,10 @@ const business = computed(() => page.props.business);
 const range = reactive({ from: props.filters.from || '', to: props.filters.to || '' });
 const filtered = computed(() => Boolean(props.filters.from || props.filters.to));
 const selectedPlan = computed(() => props.plans.find((plan) => plan.id === props.filters.plan) ?? null);
+// Plans arrive in display order (saving, then completed, then closed); closed ones fold away.
+const openPlans = computed(() => props.plans.filter((plan) => plan.status !== 'closed'));
+const closedPlans = computed(() => props.plans.filter((plan) => plan.status === 'closed'));
+const showClosed = ref(false);
 // With several plans and no plan chosen, each entry says which plan it's on.
 const showPlanColumn = computed(() => props.plans.length > 1 && !selectedPlan.value);
 // Older versions of the app could leave the stored balance out of step with the entries.
@@ -252,9 +256,23 @@ function recalculate() {
                         <Icon name="plus" class="h-4 w-4" /> New plan
                     </Link>
                 </div>
-                <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                    <PlanCard v-for="plan in plans" :key="plan.id" :plan="plan" :customer-id="customer.id" :is-admin="isAdmin" />
+                <!-- items-start: each card is as tall as its own content rather than its row. -->
+                <div class="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+                    <PlanCard v-for="plan in openPlans" :key="plan.id" :plan="plan" :customer-id="customer.id" :is-admin="isAdmin" />
                 </div>
+                <p v-if="!openPlans.length" class="card px-4 py-6 text-center text-sm text-slate-500">
+                    No open plans. Open a new plan to keep saving.
+                </p>
+
+                <template v-if="closedPlans.length">
+                    <button type="button" class="btn mt-3 px-2 py-1.5 text-sm text-slate-500 hover:bg-slate-100" @click="showClosed = !showClosed">
+                        {{ showClosed ? 'Hide' : 'Show' }} closed plans ({{ closedPlans.length }})
+                        <Icon name="chevron-down" :class="['h-4 w-4 transition', showClosed && 'rotate-180']" />
+                    </button>
+                    <div v-if="showClosed" class="mt-3 grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+                        <PlanCard v-for="plan in closedPlans" :key="plan.id" :plan="plan" :customer-id="customer.id" :is-admin="isAdmin" />
+                    </div>
+                </template>
             </section>
 
             <div class="card mt-5 overflow-hidden print:mt-4 print:shadow-none print:ring-0">

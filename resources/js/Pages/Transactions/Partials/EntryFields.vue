@@ -28,15 +28,27 @@ const dayOnPage = computed(() => {
     return page && page.month === month.value && page.day < page.days ? page.day : null;
 });
 
+// A plan with a target takes deposits up to it and no further.
+const targetLeft = computed(() => {
+    const plan = props.plan;
+    return plan?.target_days && daily.value ? Math.max(plan.target_days - plan.days_saved, 0) * daily.value : null;
+});
+const overTarget = computed(() => isDeposit.value && targetLeft.value !== null && amount.value > targetLeft.value);
+
 const quickAmounts = computed(() => {
     if (!isDeposit.value) return [];
     if (!daily.value) return [200, 500, 1000, 2000, 5000].map((value) => ({ value, label: naira(value).replace('.00', '') }));
 
     const rest = PAGE_DAYS - (dayOnPage.value ?? 0);
-    return [
+    const options = [
         ...[1, 5, 10].map((days) => ({ value: days * daily.value, label: `${days} day${days === 1 ? '' : 's'}` })),
         { value: rest * daily.value, label: `Fill the page (${rest} days)` },
-    ];
+    ].filter((option) => targetLeft.value === null || option.value <= targetLeft.value);
+
+    if (targetLeft.value && !options.some((option) => option.value === targetLeft.value)) {
+        options.push({ value: targetLeft.value, label: `Complete target (${naira(targetLeft.value).replace('.00', '')})` });
+    }
+    return options;
 });
 
 // What this payment does to the plan's page, worked out the same way the ledger does.
@@ -100,6 +112,7 @@ const pageNote = computed(() => {
             </div>
 
             <p v-if="isDeposit && daily && amount > 0 && amount < daily" class="field-error">The smallest payment on this plan is {{ naira(daily) }}.</p>
+            <p v-else-if="overTarget && !form.errors.amount" class="field-error">Only {{ naira(targetLeft) }} completes this plan's target. Put anything more on another plan.</p>
             <p
                 v-else-if="pageNote"
                 :class="['mt-2 rounded-lg px-3 py-2 text-sm', pageNote.commission ? 'bg-amber-50 text-amber-900' : 'bg-emerald-50 text-emerald-800']"

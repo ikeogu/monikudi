@@ -14,10 +14,14 @@ const now = new Date();
 const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
 const active = computed(() => props.plan.status === 'active');
+const completed = computed(() => props.plan.status === 'completed');
+const closed = computed(() => props.plan.status === 'closed');
 // Only a page from this month is "current"; otherwise the next payment opens a new one.
 const page = computed(() => (props.plan.current_page?.month === thisMonth ? props.plan.current_page : null));
-const monthsSaved = computed(() => new Set(props.plan.pages.map((p) => p.month)).size);
-const progress = computed(() => (props.plan.target_months ? Math.min(100, (monthsSaved.value / props.plan.target_months) * 100) : 0));
+// A target is a 31-day page per month, counted in days saved.
+const targetDays = computed(() => props.plan.target_days);
+const daysLeft = computed(() => Math.max((targetDays.value ?? 0) - props.plan.days_saved, 0));
+const progress = computed(() => (targetDays.value ? Math.min(100, (props.plan.days_saved / targetDays.value) * 100) : 0));
 const showPages = ref(false);
 
 // A payout mid-month ends the page, so a month can have more than one; number those.
@@ -28,12 +32,13 @@ function pageName(row) {
 </script>
 
 <template>
-    <div :class="['card min-w-0 p-4 lg:p-5', !active && 'opacity-75']">
+    <div :class="['card min-w-0 p-4 lg:p-5', closed && 'opacity-75']">
         <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
                 <p class="flex items-center gap-2 font-semibold text-slate-900">
                     <span class="truncate">{{ plan.name }}</span>
-                    <span v-if="!active" class="badge bg-slate-100 text-slate-600">Closed</span>
+                    <span v-if="completed" class="badge bg-emerald-50 text-emerald-700">Completed</span>
+                    <span v-if="closed" class="badge bg-slate-100 text-slate-600">Closed</span>
                 </p>
                 <p class="text-xs text-slate-500">
                     {{ plan.daily_amount ? `${naira(plan.daily_amount)} a day` : 'No daily amount yet' }}
@@ -63,10 +68,18 @@ function pageName(row) {
             </div>
         </div>
 
-        <div v-if="plan.target_months" class="mt-3">
+        <div v-if="completed" class="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+            Target reached, so this plan takes no more deposits.
+            <template v-if="plan.balance > 0">Pay out {{ naira(plan.balance) }} to close it.</template>
+        </div>
+
+        <div v-if="targetDays" class="mt-3">
             <div class="flex justify-between text-xs text-slate-500">
-                <span>Target</span>
-                <span>Month {{ Math.min(monthsSaved, plan.target_months) }} of {{ plan.target_months }}</span>
+                <span>{{ plan.target_months }}-month target</span>
+                <span>
+                    {{ Math.min(plan.days_saved, targetDays) }} of {{ targetDays }} days
+                    <template v-if="daysLeft"> · {{ naira(daysLeft * plan.daily_amount) }} to go</template>
+                </span>
             </div>
             <div class="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
                 <div class="h-full rounded-full bg-brand-600" :style="{ width: `${progress}%` }"></div>
@@ -74,14 +87,16 @@ function pageName(row) {
         </div>
 
         <div class="mt-4 flex flex-wrap items-center gap-2 print:hidden">
-            <template v-if="active">
-                <Link :href="route('transactions.create', { type: 'credit', customer: customerId, plan: plan.id })" class="btn-primary px-3 py-1.5 text-xs">
-                    <Icon name="arrow-down-circle" class="h-4 w-4" /> Deposit
-                </Link>
-                <Link :href="route('transactions.create', { type: 'debit', customer: customerId, plan: plan.id })" class="btn-secondary px-3 py-1.5 text-xs">
-                    <Icon name="arrow-up-circle" class="h-4 w-4" /> Withdraw
-                </Link>
-            </template>
+            <Link v-if="active" :href="route('transactions.create', { type: 'credit', customer: customerId, plan: plan.id })" class="btn-primary px-3 py-1.5 text-xs">
+                <Icon name="arrow-down-circle" class="h-4 w-4" /> Deposit
+            </Link>
+            <Link
+                v-if="active || (completed && plan.balance > 0)"
+                :href="route('transactions.create', { type: 'debit', customer: customerId, plan: plan.id })"
+                :class="[completed ? 'btn-primary' : 'btn-secondary', 'px-3 py-1.5 text-xs']"
+            >
+                <Icon name="arrow-up-circle" class="h-4 w-4" /> {{ completed ? 'Pay out' : 'Withdraw' }}
+            </Link>
             <Link v-if="isAdmin" :href="route('plans.edit', plan.id)" class="btn px-2 py-1.5 text-xs text-slate-500 hover:bg-slate-100">
                 <Icon name="pencil" class="h-4 w-4" /> Edit
             </Link>

@@ -26,6 +26,9 @@ class SavingsPlan extends Model
 
     public const STATUS_ACTIVE = 'active';
 
+    // Target reached: takes no more deposits, but the customer can still collect the balance.
+    public const STATUS_COMPLETED = 'completed';
+
     public const STATUS_CLOSED = 'closed';
 
     protected $fillable = [
@@ -57,6 +60,11 @@ class SavingsPlan extends Model
     public function isActive(): bool
     {
         return $this->status === self::STATUS_ACTIVE;
+    }
+
+    public function isCompleted(): bool
+    {
+        return $this->status === self::STATUS_COMPLETED;
     }
 
     /**
@@ -108,6 +116,44 @@ class SavingsPlan extends Model
     }
 
     /**
+     * Days of saving the target asks for: a full 31-day page for each month.
+     */
+    public function targetDays(): ?int
+    {
+        return $this->target_months && $this->dailyKobo() ? $this->target_months * self::PAGE_DAYS : null;
+    }
+
+    /**
+     * Whole days paid so far. Withdrawals don't take days away; days count by saving.
+     */
+    public function daysSaved(): int
+    {
+        $daily = $this->dailyKobo();
+        if (! $daily) {
+            return 0;
+        }
+
+        $counted = (float) $this->transactions()->deposits()->where('commission_exempt', false)->sum('amount');
+
+        return intdiv((int) round($counted * 100), $daily);
+    }
+
+    /**
+     * Mark the plan completed once its target is reached, or active again if an edit
+     * (a deleted deposit, a higher target) takes it back under. Closed plans stay closed.
+     */
+    public function syncTargetStatus(): void
+    {
+        if ($this->status === self::STATUS_CLOSED) {
+            return;
+        }
+
+        $target = $this->targetDays();
+        $this->status = $target && $this->daysSaved() >= $target ? self::STATUS_COMPLETED : self::STATUS_ACTIVE;
+        $this->save();
+    }
+
+    /**
      * The page the next deposit lands on, or null when it will start a new one
      * (no counted deposit yet, or the last withdrawal emptied the plan).
      *
@@ -139,7 +185,9 @@ class SavingsPlan extends Model
     public function toFormArray(): array
     {
         return [
-            ...$this->only('id', 'name', 'daily_amount', 'balance', 'target_months'),
+            ...$this->only('id', 'name', 'daily_amount', 'balance', 'target_months', 'status'),
+            'target_days' => $this->targetDays(),
+            'days_saved' => $this->daysSaved(),
             'current_page' => $this->currentPage(),
         ];
     }
@@ -154,6 +202,29 @@ class SavingsPlan extends Model
     public function scopeActive(Builder $query): void
     {
         $query->where('status', self::STATUS_ACTIVE);
+    }
+
+    /** Plans that can still take an entry: active ones, and completed ones with money to collect. */
+    public function scopeOpen(Builder $query): void
+    {
+        $query->whereIn('status', [self::STATUS_ACTIVE, self::STATUS_COMPLETED]);
+    }
+
+    /**
+     * How plans are listed, and so which one the deposit form picks first: plans still saving,
+     * real plans before ones moved over without a daily amount, the most recently paid first;
+     * then completed plans; closed ones last.
+     */
+    public function scopeInDisplayOrder(Builder $query): void
+    {
+        $query->orderByRaw("case status when 'active' then 0 when 'completed' then 1 else 2 end")
+            ->orderByRaw('case when daily_amount is null then 1 else 0 end')
+            ->orderByDesc(Transaction::select('created_at')
+                ->whereColumn('savings_plan_id', 'savings_plans.id')
+                ->where('type', '!=', Transaction::TYPE_COMMISSION)
+                ->latest()
+                ->limit(1))
+            ->orderBy('created_at');
     }
 
     /**

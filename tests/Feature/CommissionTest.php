@@ -222,3 +222,82 @@ test('the deposit form knows which page the next payment lands on', function () 
     pay($this->plan, 1000, '2026-11-05', Transaction::TYPE_WITHDRAWAL);
     expect($this->plan->currentPage())->toBeNull();
 });
+
+test('less than a day left over a full page stays on it instead of costing a new commission', function () {
+    $deposit = pay($this->plan, 500 * 31 + 300, '2026-10-03');
+
+    expect(commissions($this->plan))->toHaveCount(1)
+        ->and([$deposit->page_number, $deposit->page_day])->toBe([1, 31])
+        ->and($this->plan->fresh()->balance)->toEqual(15300)
+        ->and($this->ledger->pages($this->plan)[0]['saved'])->toEqual(15800);
+
+    // A full day's payment after that does start the next page.
+    pay($this->plan, 500, '2026-10-04');
+    expect(commissions($this->plan))->toHaveCount(2);
+});
+
+test('a plan that reaches its target is completed and takes no more deposits', function () {
+    $goal = SavingsPlan::factory()->daily(500)->for($this->customer)->create(['target_months' => 1]);
+
+    pay($goal, 500 * 15, '2026-10-01');
+    expect($goal->fresh()->status)->toBe(SavingsPlan::STATUS_ACTIVE);
+    pay($goal, 500 * 16, '2026-10-15');
+    expect($goal->fresh()->status)->toBe(SavingsPlan::STATUS_COMPLETED);
+
+    expect(fn () => pay($goal->fresh(), 500, '2026-10-20'))->toThrow(ValidationException::class, 'reached its target');
+
+    // It can still be paid out, and closes once it's empty.
+    pay($goal->fresh(), 5000, '2026-10-21', Transaction::TYPE_WITHDRAWAL);
+    expect($goal->fresh()->status)->toBe(SavingsPlan::STATUS_COMPLETED);
+    pay($goal->fresh(), 10000, '2026-10-22', Transaction::TYPE_WITHDRAWAL);
+    expect($goal->fresh()->status)->toBe(SavingsPlan::STATUS_CLOSED);
+});
+
+test('a deposit can complete a target but not go past it', function () {
+    $goal = SavingsPlan::factory()->daily(500)->for($this->customer)->create(['target_months' => 1]);
+    pay($goal, 500 * 10, '2026-10-01');
+
+    expect(fn () => pay($goal->fresh(), 500 * 22, '2026-10-02'))
+        ->toThrow(ValidationException::class, "Only ₦10,500.00 (21 days) completes this plan's 1-month target.");
+
+    pay($goal->fresh(), 500 * 21, '2026-10-02');
+    expect($goal->fresh()->status)->toBe(SavingsPlan::STATUS_COMPLETED);
+});
+
+test('a target spans months: 2 months is 62 days saved', function () {
+    $goal = SavingsPlan::factory()->daily(500)->for($this->customer)->create(['target_months' => 2]);
+
+    pay($goal, 500 * 31, '2026-10-01');
+    expect($goal->fresh()->status)->toBe(SavingsPlan::STATUS_ACTIVE);
+    pay($goal->fresh(), 500 * 31, '2026-11-01');
+
+    expect($goal->fresh()->status)->toBe(SavingsPlan::STATUS_COMPLETED)
+        ->and(commissions($goal))->toHaveCount(2)
+        ->and($goal->fresh()->balance)->toEqual(30000);
+});
+
+test('deleting a deposit takes a completed plan back to taking deposits', function () {
+    $goal = SavingsPlan::factory()->daily(500)->for($this->customer)->create(['target_months' => 1]);
+    pay($goal, 500 * 20, '2026-10-01');
+    $last = pay($goal->fresh(), 500 * 11, '2026-10-02');
+    expect($goal->fresh()->status)->toBe(SavingsPlan::STATUS_COMPLETED);
+
+    $this->ledger->delete($last);
+
+    expect($goal->fresh()->status)->toBe(SavingsPlan::STATUS_ACTIVE);
+});
+
+test('re-settling a plan applies the current rules without touching its opening balance', function () {
+    // Entries written straight to the table, as if recorded under older rules.
+    $goal = SavingsPlan::factory()->daily(2000)->for($this->customer)->create(['target_months' => 1]);
+    $goal->forceFill(['opening_balance' => 100000])->save();
+    Transaction::factory()->for($this->customer)->create(['savings_plan_id' => $goal->id, 'amount' => 120500, 'date' => '2026-11-04']);
+
+    $this->ledger->resettle($goal);
+
+    // 62,000 fills page 1; 58,500 starts page 2; nothing more opens a third page.
+    expect(commissions($goal)->pluck('page_number')->all())->toBe([1, 2])
+        ->and($goal->fresh()->status)->toBe(SavingsPlan::STATUS_COMPLETED)
+        ->and($goal->fresh()->openingKobo())->toBe(100000)
+        ->and($goal->fresh()->balance)->toEqual(1000 + 120500 - 4000);
+});

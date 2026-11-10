@@ -10,6 +10,7 @@ defineProps({
 defineEmits(['update:modelValue']);
 
 function pageStatus(plan, date) {
+    if (plan.status === 'completed') return 'Target reached · pay out to close';
     if (!plan.daily_amount) return 'No daily amount set yet, so no commission';
     const page = plan.current_page;
     if (!page || page.month !== date.slice(0, 7)) return `Next payment starts ${monthLabel(date.slice(0, 7))}'s page`;

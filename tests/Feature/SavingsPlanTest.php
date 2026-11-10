@@ -118,10 +118,10 @@ test('the customer page lists plans with their pages, and the statement can show
 
     $this->get(route('customers.show', $this->customer))->assertInertia(fn ($page) => $page
         ->has('plans', 2)
-        ->where('plans.1.name', 'House rent')
-        ->where('plans.1.commission', 500)
-        ->where('plans.1.current_page', ['month' => '2026-11', 'number' => 1, 'day' => 5, 'days' => 31])
-        ->where('plans.1.pages.0.share', 2000)
+        ->where('plans.0.name', 'House rent')
+        ->where('plans.0.commission', 500)
+        ->where('plans.0.current_page', ['month' => '2026-11', 'number' => 1, 'day' => 5, 'days' => 31])
+        ->where('plans.0.pages.0.share', 2000)
         ->where('summary.commission', 500)
         ->has('transactions', 2));
 
@@ -134,8 +134,8 @@ test('the deposit form gets a customer\'s open plans', function () {
     $this->actingAs($this->collector)->getJson(route('customers.plans', $this->customer))
         ->assertOk()
         ->assertJsonCount(2)
-        ->assertJsonPath('1.name', 'House rent')
-        ->assertJsonPath('1.daily_amount', 500);
+        ->assertJsonPath('0.name', 'House rent')
+        ->assertJsonPath('0.daily_amount', 500);
 });
 
 test('admins see commission on the dashboard and plans that still need a daily amount', function () {
@@ -174,4 +174,47 @@ test('commission entries cannot be opened for editing', function () {
     $this->actingAs($this->admin)->post(route('transactions.store'), deposit($this->plan, $this->admin));
 
     $this->get(route('transactions.edit', Transaction::commissions()->sole()))->assertRedirect()->assertSessionHas('error');
+});
+
+test('completed plans are offered for payouts but refuse deposits', function () {
+    $this->plan->update(['target_months' => 1]);
+    $this->actingAs($this->admin)->post(route('transactions.store'), deposit($this->plan, $this->admin, ['amount' => 500 * 31]))
+        ->assertSessionHasNoErrors();
+    expect($this->plan->fresh()->status)->toBe(SavingsPlan::STATUS_COMPLETED);
+
+    $this->getJson(route('customers.plans', $this->customer))
+        ->assertJsonPath('1.status', 'completed')
+        ->assertJsonPath('1.days_saved', 31)
+        ->assertJsonPath('1.target_days', 31);
+
+    $this->post(route('transactions.store'), deposit($this->plan, $this->admin))->assertSessionHasErrors('savings_plan_id');
+});
+
+test('raising the target reopens a completed plan', function () {
+    $this->plan->update(['target_months' => 1]);
+    $this->actingAs($this->admin)->post(route('transactions.store'), deposit($this->plan, $this->admin, ['amount' => 500 * 31]));
+
+    $this->put(route('plans.update', $this->plan), ['name' => 'House rent', 'daily_amount' => 500, 'target_months' => 2])
+        ->assertSessionHasNoErrors();
+
+    expect($this->plan->fresh()->status)->toBe(SavingsPlan::STATUS_ACTIVE);
+});
+
+test('plans still saving come first, the most recently paid at the top, closed ones last', function () {
+    $school = SavingsPlan::factory()->daily(1000)->for($this->customer)->create(['name' => 'School fees']);
+    $old = SavingsPlan::factory()->daily(500)->for($this->customer)->create(['name' => 'Old goal']);
+
+    $this->actingAs($this->admin)->post(route('transactions.store'), deposit($old, $this->admin));
+    $this->post(route('plans.close', $old));
+    $this->travel(5)->minutes();
+    $this->post(route('transactions.store'), deposit($this->plan, $this->admin));
+    $this->travel(5)->minutes();
+    $this->post(route('transactions.store'), deposit($school, $this->admin, ['amount' => 1000]));
+
+    // "Daily savings" was moved over without a daily amount, so it follows the real plans.
+    $this->get(route('customers.show', $this->customer))->assertInertia(fn ($page) => $page
+        ->where('plans', fn ($plans) => collect($plans)->pluck('name')->all() === ['School fees', 'House rent', 'Daily savings', 'Old goal']));
+
+    $this->getJson(route('customers.plans', $this->customer))
+        ->assertJsonPath('*.name', ['School fees', 'House rent', 'Daily savings']);
 });

@@ -30,7 +30,7 @@ function close() {
             </p>
             <PlanFields :form="form" :amount-locked="amountLocked" />
             <div class="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:items-center">
-                <button v-if="plan.status === 'active'" type="button" class="btn text-red-600 hover:bg-red-50 sm:mr-auto" @click="close">Close plan</button>
+                <button v-if="plan.status !== 'closed'" type="button" class="btn text-red-600 hover:bg-red-50 sm:mr-auto" @click="close">Close plan</button>
                 <Link :href="route('customers.show', customer.id)" class="btn-secondary">Cancel</Link>
                 <button type="submit" class="btn-primary" :disabled="form.processing">Save Changes</button>
             </div>

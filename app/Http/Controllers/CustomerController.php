@@ -82,7 +82,7 @@ class CustomerController extends Controller
 
         return Inertia::render('Customers/Show', [
             'customer' => $customer->load('registeredBy:id,name'),
-            'plans' => $customer->plans()->orderBy('status')->oldest()->get()->map(fn (SavingsPlan $plan) => [
+            'plans' => $customer->plans()->inDisplayOrder()->get()->map(fn (SavingsPlan $plan) => [
                 ...$plan->toFormArray(),
                 'status' => $plan->status,
                 'closed_at' => $plan->closed_at,
@@ -107,7 +107,7 @@ class CustomerController extends Controller
      */
     public function plans(Customer $customer)
     {
-        return response()->json($customer->plans()->active()->oldest()->get()->map->toFormArray());
+        return response()->json($customer->plans()->open()->inDisplayOrder()->get()->map->toFormArray());
     }
 
     /**

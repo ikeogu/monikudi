@@ -74,7 +74,7 @@ class TransactionController extends Controller
         return Inertia::render('Transactions/Create', [
             'type' => $request->input('type') === Transaction::TYPE_WITHDRAWAL ? Transaction::TYPE_WITHDRAWAL : Transaction::TYPE_DEPOSIT,
             'customer' => $customer,
-            'plans' => $customer ? $customer->plans()->active()->oldest()->get()->map->toFormArray() : [],
+            'plans' => $customer ? $customer->plans()->open()->inDisplayOrder()->get()->map->toFormArray() : [],
             'plan' => $request->input('plan'),
             'collectors' => $this->collectorOptions($request->user()),
             'paymentMethods' => Transaction::PAYMENT_METHODS,
