@@ -211,6 +211,23 @@ class SavingsPlan extends Model
     }
 
     /**
+     * How plans are listed, and so which one the deposit form picks first: plans still saving,
+     * real plans before ones moved over without a daily amount, the most recently paid first;
+     * then completed plans; closed ones last.
+     */
+    public function scopeInDisplayOrder(Builder $query): void
+    {
+        $query->orderByRaw("case status when 'active' then 0 when 'completed' then 1 else 2 end")
+            ->orderByRaw('case when daily_amount is null then 1 else 0 end')
+            ->orderByDesc(Transaction::select('created_at')
+                ->whereColumn('savings_plan_id', 'savings_plans.id')
+                ->where('type', '!=', Transaction::TYPE_COMMISSION)
+                ->latest()
+                ->limit(1))
+            ->orderBy('created_at');
+    }
+
+    /**
      * Give each customer without a plan a "General savings" plan holding their current
      * balance and entries. Used when plans were introduced and after restoring an older
      * backup. Those entries never count toward a page. If the stored balance had drifted
