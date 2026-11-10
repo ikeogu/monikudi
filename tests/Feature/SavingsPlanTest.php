@@ -175,3 +175,27 @@ test('commission entries cannot be opened for editing', function () {
 
     $this->get(route('transactions.edit', Transaction::commissions()->sole()))->assertRedirect()->assertSessionHas('error');
 });
+
+test('completed plans are offered for payouts but refuse deposits', function () {
+    $this->plan->update(['target_months' => 1]);
+    $this->actingAs($this->admin)->post(route('transactions.store'), deposit($this->plan, $this->admin, ['amount' => 500 * 31]))
+        ->assertSessionHasNoErrors();
+    expect($this->plan->fresh()->status)->toBe(SavingsPlan::STATUS_COMPLETED);
+
+    $this->getJson(route('customers.plans', $this->customer))
+        ->assertJsonPath('1.status', 'completed')
+        ->assertJsonPath('1.days_saved', 31)
+        ->assertJsonPath('1.target_days', 31);
+
+    $this->post(route('transactions.store'), deposit($this->plan, $this->admin))->assertSessionHasErrors('savings_plan_id');
+});
+
+test('raising the target reopens a completed plan', function () {
+    $this->plan->update(['target_months' => 1]);
+    $this->actingAs($this->admin)->post(route('transactions.store'), deposit($this->plan, $this->admin, ['amount' => 500 * 31]));
+
+    $this->put(route('plans.update', $this->plan), ['name' => 'House rent', 'daily_amount' => 500, 'target_months' => 2])
+        ->assertSessionHasNoErrors();
+
+    expect($this->plan->fresh()->status)->toBe(SavingsPlan::STATUS_ACTIVE);
+});

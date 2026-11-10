@@ -59,6 +59,8 @@ class SavingsPlanController extends Controller
         }
 
         $plan->update($validated);
+        // A new target can complete the plan, or reopen a completed one for more deposits.
+        $plan->syncTargetStatus();
 
         return redirect()->route('customers.show', $plan->customer_id)->with('success', "{$plan->name} plan updated.");
     }

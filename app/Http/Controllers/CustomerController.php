@@ -15,6 +15,9 @@ use Inertia\Inertia;
 
 class CustomerController extends Controller
 {
+    /** How plans are listed on a customer's page: ones still saving first, closed last. */
+    private const PLAN_ORDER = [SavingsPlan::STATUS_ACTIVE, SavingsPlan::STATUS_COMPLETED, SavingsPlan::STATUS_CLOSED];
+
     /**
      * Display a list of customers.
      */
@@ -82,7 +85,7 @@ class CustomerController extends Controller
 
         return Inertia::render('Customers/Show', [
             'customer' => $customer->load('registeredBy:id,name'),
-            'plans' => $customer->plans()->orderBy('status')->oldest()->get()->map(fn (SavingsPlan $plan) => [
+            'plans' => $customer->plans()->oldest()->get()->sortBy(fn (SavingsPlan $plan) => array_search($plan->status, self::PLAN_ORDER))->values()->map(fn (SavingsPlan $plan) => [
                 ...$plan->toFormArray(),
                 'status' => $plan->status,
                 'closed_at' => $plan->closed_at,
@@ -107,7 +110,7 @@ class CustomerController extends Controller
      */
     public function plans(Customer $customer)
     {
-        return response()->json($customer->plans()->active()->oldest()->get()->map->toFormArray());
+        return response()->json($customer->plans()->open()->oldest()->get()->map->toFormArray());
     }
 
     /**

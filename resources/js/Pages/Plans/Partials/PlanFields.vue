@@ -83,6 +83,9 @@ const commission = computed(() => Number(props.form.daily_amount) || 0);
                     {{ target.label }}
                 </button>
             </div>
+            <p v-if="form.target_months" class="mt-1.5 text-xs text-slate-500">
+                That's {{ form.target_months * 31 }} days of saving (31 a month). Once reached, the plan takes no more deposits and closes when paid out.
+            </p>
             <p v-if="form.errors.target_months" class="field-error">{{ form.errors.target_months }}</p>
         </div>
     </div>

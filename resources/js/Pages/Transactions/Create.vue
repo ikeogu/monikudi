@@ -25,7 +25,7 @@ const loadingPlans = ref(false);
 
 const form = useForm({
     customer_id: props.customer?.id ?? '',
-    savings_plan_id: pickPlan(props.plans, props.plan),
+    savings_plan_id: pickPlan(props.plans, props.type, props.plan),
     type: props.type,
     amount: '',
     date: props.today,
@@ -37,10 +37,17 @@ const form = useForm({
 
 const isDeposit = computed(() => form.type === 'credit');
 const title = computed(() => (isDeposit.value ? 'New Deposit' : 'New Withdrawal'));
-const selectedPlan = computed(() => plans.value.find((plan) => plan.id === form.savings_plan_id) ?? null);
+const usablePlans = computed(() => plans.value.filter((plan) => usableFor(form.type, plan)));
+const selectedPlan = computed(() => usablePlans.value.find((plan) => plan.id === form.savings_plan_id) ?? null);
 
-function pickPlan(list, preferred = null) {
-    return (list.find((plan) => plan.id === preferred) ?? list[0])?.id ?? '';
+// A completed plan takes no deposits but can still be paid out.
+function usableFor(type, plan) {
+    return type === 'credit' ? plan.status === 'active' : plan.status === 'active' || plan.balance > 0;
+}
+
+function pickPlan(list, type, preferred = null) {
+    const usable = list.filter((plan) => usableFor(type, plan));
+    return (usable.find((plan) => plan.id === preferred) ?? usable[0])?.id ?? '';
 }
 
 watch(selectedCustomer, async (customer) => {
@@ -54,12 +61,20 @@ watch(selectedCustomer, async (customer) => {
         const { data } = await axios.get(route('customers.plans', customer.id));
         if (selectedCustomer.value?.id === customer.id) {
             plans.value = data;
-            form.savings_plan_id = pickPlan(data);
+            form.savings_plan_id = pickPlan(data, form.type);
         }
     } finally {
         loadingPlans.value = false;
     }
 });
+
+// Switching between deposit and withdrawal may rule out the chosen plan.
+watch(
+    () => form.type,
+    () => {
+        if (!selectedPlan.value) form.savings_plan_id = pickPlan(plans.value, form.type, form.savings_plan_id);
+    },
+);
 
 // A deposit starts at one day's payment on the chosen plan.
 watch(
@@ -110,9 +125,9 @@ function submit() {
             <div v-if="selectedCustomer">
                 <span class="label">Savings plan</span>
                 <p v-if="loadingPlans" class="text-sm text-slate-500">Loading plans…</p>
-                <PlanPicker v-else-if="plans.length" v-model="form.savings_plan_id" :plans="plans" :date="form.date" />
+                <PlanPicker v-else-if="usablePlans.length" v-model="form.savings_plan_id" :plans="usablePlans" :date="form.date" />
                 <p v-else class="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
-                    {{ selectedCustomer.full_name }} has no open plan.
+                    {{ selectedCustomer.full_name }} has no {{ isDeposit ? 'plan taking deposits' : 'plan with money to pay out' }}.
                     <Link :href="route('plans.create', selectedCustomer.id)" class="font-semibold underline">Open a plan</Link> to record entries.
                 </p>
                 <p v-if="form.errors.savings_plan_id" class="field-error">{{ form.errors.savings_plan_id }}</p>
