@@ -26,7 +26,7 @@ class DemoSeeder extends Seeder
         $customers = Customer::factory()->count(40)
             ->sequence(fn ($sequence) => ['reg_no' => 'AJ'.str_pad($sequence->index + 101, 7, '0', STR_PAD_LEFT)])
             ->create(['created_by' => $admin->id]);
-
+ 
         $today = Carbon::today();
 
         $customers->each(function (Customer $customer) use ($ledger, $collectors, $admin, $today) {
