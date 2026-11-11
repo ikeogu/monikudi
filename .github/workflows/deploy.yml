@@ -83,9 +83,17 @@ jobs:
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
+          # Bring the server to exactly the commit CI just tested before running its deploy steps;
+          # scripts/deploy.sh itself doesn't fetch code. The reset discards edits to tracked files on
+          # the server (never .env, uploads or untracked files), so changes belong in the repo.
           ssh \
             -i ~/.ssh/deploy_key \
             -o BatchMode=yes \
             -o StrictHostKeyChecking=yes \
             "$SERVER_USER@$SERVER_HOST" \
-            'cd /var/www/monikudi && bash scripts/deploy.sh'
+            "set -e
+            cd /var/www/monikudi
+            git fetch --prune origin main
+            git reset --hard $GITHUB_SHA
+            echo \"Deploying \$(git log -1 --oneline)\"
+            bash scripts/deploy.sh"
