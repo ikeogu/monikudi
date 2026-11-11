@@ -3,7 +3,7 @@ set -e
 
 echo "🔧 Running composer..."
 
-cd /var/www/html
+cd /var/www/monikudi
 
 echo "Running composer"
 composer install --no-dev --optimize-autoloader --no-dev
